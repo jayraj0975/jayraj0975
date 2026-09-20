@@ -12,11 +12,12 @@ I like projects that go past the notebook, and I care more about *honest* result
 | **[Churn analysis](https://github.com/jayraj0975/customer-churn-analysis)** | Telco churn: models chosen by cross-validation on training data only, bootstrap intervals, calibrated probabilities, an outreach threshold chosen on stated cost assumptions, out-of-fold risk scores. |
 | **[Churn Predictor web app](https://github.com/jayraj0975/churnapp)** | React, TypeScript and Express app running a trained logistic regression (test ROC-AUC 0.83), with drivers, what-if simulation and retention plans. The TypeScript engine is tested against scikit-learn to 1e-9. |
 | **[Churn Predictor for Android](https://github.com/jayraj0975/churn-predictor-android)** | Native Java app that scores on-device with the same trained model's coefficients. Unit-tested against scikit-learn, lint-clean, built in CI. |
+| **[SQL Sales Analysis](https://github.com/jayraj0975/sql-sales-analysis)** | Ten commented SQL queries (window functions, CTEs, RFM, cohort retention) on a sample store database, with an Excel report and 17 tests that reconcile every query against independent calculations. |
 | **[Password Strength Analyzer](https://github.com/jayraj0975/password-strength-analyzer)** | C++17 library and CLI: pattern-aware strength estimate, common-password detection, tested with sanitizers. |
 
 ## Toolbox
 
-**Python** (pandas, scikit-learn, FastAPI) · **TypeScript** (React, Node, Express) · **Java** (Android) · **C++** · Git, GitHub Actions, Docker
+**Python** (pandas, scikit-learn, FastAPI) · **SQL** (SQLite: window functions, CTEs) · **TypeScript** (React, Node, Express) · **Java** (Android) · **C++** · Git, GitHub Actions, Docker
 
 ## Find me
 
