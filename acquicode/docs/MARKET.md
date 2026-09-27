@@ -26,8 +26,16 @@ Is there a real, paid, recurring problem in establishing what AI-built software 
 | 8 | The EU Cyber Resilience Act's vulnerability reporting duties apply from 11 September 2026; SBOM and the remaining duties apply from 11 December 2027. | FACT | [European Commission](https://digital-strategy.ec.europa.eu/en/policies/cyber-resilience-act), [Anchore](https://anchore.com/sbom/eu-cra/) |
 | 9 | EU AI Act Article 50 guidelines treat **source code as outside** Article 50(2) marking duties. Regulation does not (yet) require code provenance. | FACT | [artificialintelligenceact.eu](https://artificialintelligenceact.eu/transparency-rules-article-50/), [Faegre Drinker](https://www.faegredrinker.com/en/insights/publications/2026/7/eu-ai-act-commission-confirms-transparency-code-of-practice-as-adequate-and-publishes-final-version-of-its-guidelines-on-transparency-obligations) |
 | 10 | Google reports 75% of its new code is AI-generated and engineer-approved (April 2026); Microsoft's last figure is 20-30% (April 2025). These are self-reported and measure different things. | FACT (self-reported) | [digitalapplied summary](https://www.digitalapplied.com/blog/ai-share-of-own-work-tech-companies-disclosed-figures) |
+| 11 | VS Code 1.117 (rollout from 22 April 2026) made `git.addAICoAuthor` default to `all` and, through a bug, added `Co-authored-by: Copilot <copilot@github.com>` to commits with no AI involvement, even with AI features disabled; 1.118 narrowed the default and 1.119 reverted it to off. In `all` mode a single next-edit suggestion triggers the trailer. | FACT | [microsoft/vscode#314311](https://github.com/microsoft/vscode/issues/314311) (maintainer statement) |
+| 12 | A Fasken M&A bulletin (13 Aug 2026) expects RWI insurers to scrutinise AI risk and, "if the diligence record is incomplete", to push broader AI exclusions; it advises sellers to build a thorough record including IP ownership. | FACT (a law firm's view, not data) | [Fasken](https://www.fasken.com/en/knowledge/2026/08/when-ai-meets-rwi-in-ma-what-impact-will-ai-have-on-representation-and-warranty-insurance) |
+| 13 | Black Duck's M&A page lists sellers as a customer group, includes "AI" in audit scope, and states "targets trust Black Duck with their IP". | OBSERVATION (page updated 19 Aug 2026) | [Black Duck](https://www.blackduck.com/solutions/mergers-and-acquisitions.html) |
 
 **What this means (OBSERVATION):** the "why now" is not regulation (row 9 kills that argument). It is (a) a settled human-authorship rule that makes *which* code has human authorship a real diligence question, (b) indemnities that depend on facts a buyer cannot see, (c) buyers now asking the question explicitly, and (d) for the first time, machine-readable evidence exists to answer it, but only if someone collects it while it still exists.
+
+**Second research loop (OBSERVATION):**
+- **Row 11.** Attribution *written by tools* can be wrong at scale, which turns "just count the trailers" into a liability and makes evidence grading the product rather than a feature.
+- **Row 12.** An incomplete diligence record may cost sellers insurance coverage, a second reason to prepare before a buyer asks. It is a prediction, not data.
+- **Row 13.** The seller side isn't uncontested: Black Duck markets to sellers too, as a human-led audit.
 
 ## 3. Evidence of willingness to pay
 

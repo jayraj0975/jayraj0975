@@ -42,7 +42,7 @@ export default async function Landing() {
               <div className="ladder">
                 <strong>Direct, line-level</strong><span className="n">✓</span><span className="desc small muted">Machine-readable records tie specific lines to a tool.</span>
                 <strong>Direct, commit-level</strong><span className="n">✓</span><span className="desc small muted">A commit names the tool that took part.</span>
-                <strong>Corroborating</strong><span className="n">~</span><span className="desc small muted">Self-declared comments, tool configuration.</span>
+                <strong>Corroborating</strong><span className="n">~</span><span className="desc small muted">Self-declared comments, tool configuration, editor-inserted trailers.</span>
                 <strong>Inference</strong><span className="n">?</span><span className="desc small muted">A reason to ask. Never counted as evidence, never blocks a deal.</span>
                 <strong>No evidence</strong><span className="n">—</span><span className="desc small muted">Unknown. Not &ldquo;human&rdquo;.</span>
               </div>
@@ -68,7 +68,7 @@ export default async function Landing() {
           <div className="wrap grid2">
             <div>
               <h2>Runs where your code lives</h2>
-              <p>Targets rarely hand source code to a buyer. So the analyzer runs in your CI or on your laptop and produces a signed dossier with paths, hashes and metadata, never source.</p>
+              <p>Targets rarely hand source code to a buyer directly. So the analyzer runs in your CI or on your laptop and produces a signed dossier with paths, hashes and metadata, never source.</p>
               <p>The analysis is deterministic: anyone with access to the same commits can re-run it and must get the same digest. That is what lets a buyer trust a dossier the seller produced.</p>
             </div>
             <pre>{`# Example output, from the Meridian demo repository
@@ -98,7 +98,7 @@ reproduced digest 38eb9d2a...: MATCHES`}</pre>
                 </div>
               ))}
             </div>
-            <p className="small muted">Enterprise (self-hosted workers, 400-repository targets, SSO): write to the address on the security page.</p>
+            <p className="small muted">Enterprise: run AcquiCode in your own environment with custom limits and retention. SSO and a worker agent for code that must stay on your network are on the roadmap, not yet available. Write to the address on the security page.</p>
           </div>
         </section>
 

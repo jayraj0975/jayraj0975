@@ -111,3 +111,49 @@ Anchors: consultants $5k-$30k per target; Sema $33/dev/month; Snyk $25/dev/month
 | Enterprise / API | Custom | 400-repo targets, self-hosted worker, SSO |
 
 Rejected: the brief's $499 snapshot (priced below the cost of one buyer-side question and signals "toy"), and per-developer pricing (the seller's developer count is irrelevant to the value of a transaction document).
+
+---
+
+## D10. Second research loop: attribution written by tools is not attribution
+**Found:** VS Code 1.117 (April 2026) made its `Co-authored-by: Copilot <copilot@github.com>` trailer the default and, through a bug, added it to commits with no AI involvement; its intended mode fires on a single suggested word ([microsoft/vscode#314311](https://github.com/microsoft/vscode/issues/314311)). Our engine counted that trailer as DIRECT evidence. That is exactly the "uncertainty turned into certainty" release blocker: a company that disabled AI could have been shown as contradicting its own "no AI" declaration.
+**Chose:** commit signals carry a reliability. Editor-inserted trailers are CORROBORATING evidence, the tool use they imply is INFERRED, and new rule AI-013 asks the question. Invariants I11 and I12 make the regression impossible to ship silently.
+**Repositioning consequence:** the moat is not "reading trailers" (anyone can grep); it is *grading* evidence and refusing to over-claim. Tools that count trailers as attribution now produce wrong answers for a documented class of repositories.
+
+## D11. Second research loop: Black Duck sells to sellers, and covers AI
+**Found:** Black Duck's M&A page (updated August 2026) lists sellers as a customer group and puts "AI" in audit scope, and says "targets trust Black Duck with their IP".
+**Chose:** we no longer claim targets won't share code at all; they share it with trusted third-party auditors. Our differentiation is narrower and more honest:
+- **self-serve and minutes, not weeks**, at a fraction of the price;
+- **continuous custody**, not a point-in-time audit;
+- a **reproducible, signed** artifact a buyer can check;
+- **evidence grading** of AI attribution rather than an auditor's opinion.
+We should expect to lose large, buy-side, human-audit deals to Black Duck and win the sellers who want to know before anyone looks.
+
+## D12. R&W insurance is a channel to test, not a claim to make
+**Found:** Fasken (13 August 2026) expects RWI insurers to push broader AI exclusions when "the diligence record is incomplete", and advises sellers to make AI risk "identifiable and understandable", including IP ownership records. This is a law firm's view, not data.
+**Chose:** no marketing claim about insurance. Add brokers and underwriters to the validation list (WHY_NOT.md §3). A dossier that narrows an exclusion would be the strongest demand signal we could find.
+
+## D13. Tenant isolation must survive managed PostgreSQL
+**Found in QA:** the SECURITY DEFINER lookups (share links, API tokens, webhooks, invitations) returned nothing when the schema owner was not a superuser, because FORCE RLS binds the owner. It worked in development only because development used a superuser. On RDS or Cloud SQL, share links and the API would have silently failed.
+**Chose:** owner-only policies for the definer lookups (migration 002). Migrations refuse an application role that could bypass RLS. The database test suite runs as a non-superuser owner, and so does the compose stack.
+
+## D14. Never trust identifiers a third party can edit
+**Found in QA:**
+1. The GitHub setup callback trusted `installation_id`, so any admin could bind another customer's installation.
+2. Invitations were keyed on usernames, which change hands.
+3. The GitLab clone URL was taken from the remote's API response.
+**Chose:**
+1. Bind an installation only after GitHub confirms the signed-in user can access it, and refuse installations bound elsewhere.
+2. Bind invitations to numeric GitHub ids (migration 003).
+3. Build clone URLs from the checked host, and pin DNS for the API call and the clone.
+Each is covered by a test that replays the attack.
+
+## D15. The worker is a self-contained bundle
+The worker, analysis runner, migrations and re-encryption tool are bundled with esbuild, so the container needs no `node_modules` for them. The web app uses Next.js standalone output. One image, three commands. A bug where the worker imported Next.js through a shared error class was found by the end-to-end suite and fixed by moving `HttpError` into a framework-free module.
+
+## D16. Honest defaults over convenient ones
+- **Client IPs:** taken from `X-Forwarded-For` only through `TRUST_PROXY` hops, and from the entry the proxy added. Without a proxy they are recorded as unknown, not guessed.
+- **Plan features:** state only what exists. "Alerts", "portfolio view", "SSO" and "self-hosted workers" were removed from plan copy until built (ROADMAP.md).
+- **Readiness:** every level carries a fixed scope statement, in the app and the export.
+
+## D17. Key rotation includes retirement
+Multiple decryption keys alone let you add a key but never remove one. `reencrypt.mjs` re-encrypts credentials and dossier bodies under the current key, idempotently, so the old key can be retired. It is tested end to end.

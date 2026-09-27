@@ -11,6 +11,8 @@ import { decryptBlob, encryptBlob } from './crypto';
 export interface BlobStore {
   put(key: string, data: Buffer): Promise<void>;
   get(key: string): Promise<Buffer>;
+  /** The stored (encrypted) bytes, for key rotation. */
+  getRaw(key: string): Promise<Buffer>;
   delete(key: string): Promise<void>;
 }
 
@@ -35,6 +37,9 @@ class FsStore implements BlobStore {
   }
   async get(key: string): Promise<Buffer> {
     return decryptBlob(await readFile(this.path(key)), key);
+  }
+  async getRaw(key: string): Promise<Buffer> {
+    return readFile(this.path(key));
   }
   async delete(key: string): Promise<void> {
     await rm(this.path(key), { force: true });
@@ -63,11 +68,13 @@ class S3Store implements BlobStore {
     await (await this.client()).send(new PutObjectCommand({ Bucket: this.bucket, Key: key, Body: encryptBlob(data, key), ServerSideEncryption: 'AES256' }));
   }
   async get(key: string): Promise<Buffer> {
+    return decryptBlob(await this.getRaw(key), key);
+  }
+  async getRaw(key: string): Promise<Buffer> {
     checkKey(key);
     const { GetObjectCommand } = await import('@aws-sdk/client-s3');
     const res = await (await this.client()).send(new GetObjectCommand({ Bucket: this.bucket, Key: key }));
-    const bytes = await res.Body!.transformToByteArray();
-    return decryptBlob(Buffer.from(bytes), key);
+    return Buffer.from(await res.Body!.transformToByteArray());
   }
   async delete(key: string): Promise<void> {
     checkKey(key);

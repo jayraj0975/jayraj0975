@@ -119,6 +119,18 @@ function stateKey(): Buffer {
   return createHash('sha256').update('acquicode-state:').update(loadKeys()[0]!.key).digest();
 }
 
+/** Key id that new data is encrypted with. */
+export function currentKeyId(): string {
+  return loadKeys()[0]!.kid;
+}
+
+/** Key id a sealed value or blob was encrypted with, without decrypting it. */
+export function sealedKeyId(sealed: string | Buffer): string | null {
+  if (typeof sealed === 'string') return sealed.startsWith('v1.') ? (sealed.split('.')[1] ?? null) : null;
+  if (sealed.subarray(0, 4).toString() !== 'ACQ1') return null;
+  return sealed.subarray(5, 5 + sealed[4]!).toString('utf8');
+}
+
 /** Test hook. */
 export function resetKeys(): void {
   keys = null;

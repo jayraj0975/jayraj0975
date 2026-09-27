@@ -34,6 +34,13 @@ They would ship an "AI attribution" view for Copilot commits and a nicer SBOM ex
 ### "Snyk or Black Duck adds this tomorrow"
 Black Duck is the real threat: it already owns M&A OSS audits. It can add provenance ingestion in a quarter. What survives: price point and delivery model. Black Duck's audit model needs the code shipped to an auditor; ours runs where the code lives and emits a reproducible, signed evidence bundle. We should expect Black Duck to compete on the buy side and lose the self-serve seller side.
 
+**Second research loop (September 2026):**
+- **Sellers are targeted too.** Black Duck's M&A page now names sellers as customers and "AI" as audit scope, and says targets trust it with their IP. The seller side isn't uncontested, and the "targets won't share code" argument only holds for sharing *with the buyer*.
+- **Where we compete.** Self-serve speed and price, continuous custody, a reproducible signed artifact, and graded AI evidence. Not audit depth or snippet matching, where Black Duck is stronger. See DECISIONS.md D11.
+
+### "A tool vendor's attribution becomes the standard"
+Editors and agents now write attribution into git themselves, and the second loop showed how that fails: VS Code stamped Copilot co-author trailers on commits with no AI involvement (MARKET.md row 11). Any competitor that counts trailers inherits that error. Our answer is grading (editor-inserted trailers are corroborating only, rule AI-013). If one vendor's format did become reliable and universal, it would make our AI section easier, not unnecessary: the neutral, cross-vendor, signed view stays ours to offer.
+
 ### "A well-funded YC clone"
 Code is copyable in months. The only things that are not: (a) the history of signed snapshots each customer has accumulated with us (a chain of custody cannot be backfilled), (b) the set of buyers who already accept our format, and (c) the anonymised corpus of findings and their resolutions across transactions. All three are zero on day one. **This is the honest weakness.** Speed to the first 50 buyers accepting the format is the moat race.
 

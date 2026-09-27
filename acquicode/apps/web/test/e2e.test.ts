@@ -424,6 +424,48 @@ describe.skipIf(!ready)('AcquiCode end to end', () => {
     for (const a of ['upload.received', 'scan.succeeded', 'dossier.downloaded', 'share_link.created', 'share_link.viewed', 'share_link.revoked', 'declarations.saved', 'api_token.created', 'dossier.pushed', 'github.installation_connected', 'member.invited']) expect(actions).toContain(a);
   });
 
+  it('rotates the encryption key: re-encrypts credentials and dossiers so the old key can be retired', async () => {
+    const oldKeys = env.DATA_ENCRYPTION_KEYS!;
+    const newKeys = `k2:${randomBytes(32).toString('base64')},${oldKeys}`;
+    const setKeys = async (keys: string) => {
+      process.env.DATA_ENCRYPTION_KEYS = keys;
+      const cfg = await import('../lib/config');
+      const crypto = await import('../lib/crypto');
+      cfg.resetConfig();
+      crypto.resetKeys();
+      return crypto;
+    };
+    // A GitLab connection sealed under the old key.
+    const repo = (await owner.query("INSERT INTO repositories (org_id, provider, full_name, clone_url) VALUES ($1, 'gitlab', 'group/legacy', 'https://gitlab.example.com/group/legacy.git') RETURNING id", [alice.orgId])).rows[0].id;
+    const c1 = await setKeys(oldKeys);
+    await owner.query('UPDATE repositories SET credential_enc = $2 WHERE id = $1', [repo, c1.encrypt('glpat-e2e-token-value', `repo:${repo}`)]);
+    const run = () =>
+      new Promise<{ credentials: { reencrypted: number }; blobs: { reencrypted: number; checked: number } }>((ok, fail) => {
+        const p = spawn(process.execPath, [join(WEB, 'dist-node/worker/reencrypt.mjs')], { cwd: WEB, env: { ...env, DATA_ENCRYPTION_KEYS: newKeys } });
+        let out = '';
+        p.stdout.on('data', (b: Buffer) => (out += b.toString()));
+        p.on('close', (code) => (code === 0 ? ok(JSON.parse(out)) : fail(new Error(`exit ${code}`))));
+      });
+    const first = await run();
+    expect(first.credentials.reencrypted).toBe(1);
+    expect(first.blobs.reencrypted).toBeGreaterThanOrEqual(1);
+    expect(first.blobs.reencrypted).toBe(first.blobs.checked);
+    // Everything now opens with the new key alone.
+    const c2 = await setKeys(newKeys.split(',')[0]!);
+    const sealed = (await owner.query('SELECT credential_enc FROM repositories WHERE id = $1', [repo])).rows[0].credential_enc as string;
+    expect(sealed.startsWith('v1.k2.')).toBe(true);
+    expect(c2.decrypt(sealed, `repo:${repo}`).toString()).toBe('glpat-e2e-token-value');
+    const { readFileSync } = await import('node:fs');
+    for (const r of (await owner.query('SELECT storage_key FROM dossiers')).rows) {
+      const raw = readFileSync(join(tmp, 'blobs', r.storage_key));
+      expect(c2.sealedKeyId(raw)).toBe('k2');
+      expect(JSON.parse(c2.decryptBlob(raw, r.storage_key).toString()).schema).toBe('acquicode.dossier/1');
+    }
+    // Idempotent.
+    const second = await run();
+    expect(second).toMatchObject({ credentials: { reencrypted: 0 }, blobs: { reencrypted: 0 } });
+  });
+
   it('deletes a repository and its encrypted dossiers', async () => {
     const repo = await owner.query("SELECT r.id, r.full_name FROM repositories r JOIN scans s ON s.repository_id = r.id WHERE s.id = $1", [scanId]);
     const res = await http(`/api/repos/${repo.rows[0].id}/delete`, { method: 'POST', as: alice, body: new URLSearchParams({ confirm: repo.rows[0].full_name }) });
