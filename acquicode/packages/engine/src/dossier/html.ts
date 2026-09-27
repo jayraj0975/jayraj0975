@@ -2,6 +2,7 @@ import type { Audience, DiligenceAnswer, Dossier, EvidenceItem, Finding, Provena
 import { dossierDigest } from '../analyze.js';
 import type { DsseEnvelope, DossierStatement } from './sign.js';
 import type { DossierDiff } from './diff.js';
+import { READINESS_SCOPE } from '../diligence/questions.js';
 
 const ESC: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#96;' };
 /** Escape every repository-derived string. Nothing from the repository is ever emitted as markup. */
@@ -120,7 +121,7 @@ export function renderDossierHtml(d: Dossier, opts: RenderOptions = {}): string 
   const sections: string[] = [];
 
   sections.push(`<section id="summary"><h2><span class="num">1</span>Executive Summary</h2>
-  <div class="readiness readiness-${d.readiness.level.toLowerCase()}"><div class="level">${esc(d.readiness.level)}</div><div><p class="headline">${esc(d.summary.headline)}</p><ul>${d.readiness.reasons.slice(0, 8).map((r) => `<li>${esc(r)}</li>`).join('')}</ul></div></div>
+  <div class="readiness readiness-${d.readiness.level.toLowerCase()}"><div class="level">${esc(d.readiness.level)}</div><div><p class="headline">${esc(d.summary.headline)}</p><ul>${d.readiness.reasons.slice(0, 8).map((r) => `<li>${esc(r)}</li>`).join('')}</ul><p class="scope-note">${esc(READINESS_SCOPE)}</p></div></div>
   <div class="counts">${(['blocking', 'material', 'minor', 'info'] as const).map((m) => `<div><span class="n">${d.summary.counts[m]}</span><span class="l">${m}</span></div>`).join('')}<div><span class="n">${d.unknowns.filter((u) => u.material).length}</span><span class="l">material unknowns</span></div></div>
   ${d.summary.paragraphs.map((p) => { const i = p.indexOf(': '); return i > 0 && i < 40 ? `<p><strong>${esc(p.slice(0, i))}.</strong> ${esc(p.slice(i + 2))}</p>` : `<p>${esc(p)}</p>`; }).join('\n')}
   <h3>Top material findings</h3>
@@ -334,6 +335,7 @@ td{overflow-wrap:anywhere}
 .readiness-ready{border-left-color:var(--ready)}.readiness-ready .level{color:var(--ready)}
 .readiness-review{border-left-color:var(--review)}.readiness-review .level{color:var(--review)}
 .readiness-blocked{border-left-color:var(--blocked)}.readiness-blocked .level{color:var(--blocked)}
+.scope-note{margin:.6rem 0 0;font-size:.85rem;color:var(--muted)}
 .readiness ul{margin:.4rem 0 0;padding-left:1.1rem;color:var(--muted)}.headline{margin:0;font-weight:600}
 .counts{display:flex;flex-wrap:wrap;gap:.75rem;margin:1rem 0}.counts div{border:1px solid var(--line);border-radius:6px;padding:.5rem .9rem;background:var(--panel);min-width:7rem}
 .counts .n{display:block;font:600 1.4rem/1.1 ui-sans-serif,system-ui,sans-serif}.counts .l{color:var(--muted);font-size:.8rem}

@@ -56,7 +56,7 @@ beforeAll(async () => {
   await admin.query(`CREATE ROLE ${badRole} LOGIN PASSWORD 'pw' NOSUPERUSER BYPASSRLS`);
   await admin.query(`CREATE DATABASE ${dbName} OWNER ${ownerRole}`);
   await admin.end();
-  expect(await migrate(url(ownerRole), appRole, MIGRATIONS)).toEqual(['001_init.sql', '002_definer_access.sql']);
+  expect(await migrate(url(ownerRole), appRole, MIGRATIONS)).toEqual(['001_init.sql', '002_definer_access.sql', '003_invitations_by_id.sql']);
   app = new pg.Client({ connectionString: url(appRole) });
   owner = new pg.Client({ connectionString: url(ownerRole) });
   await Promise.all([app.connect(), owner.connect()]);
@@ -76,7 +76,9 @@ beforeAll(async () => {
       ids[`repo${org}`] = repo;
     });
   }
-  await asOrg(ids.orgB!, () => app.query("INSERT INTO invitations (org_id, github_login, role) VALUES ($1, 'Ana', 'member')", [ids.orgB]));
+  await asOrg(ids.orgB!, () => app.query("INSERT INTO invitations (org_id, github_login, github_id, role) VALUES ($1, 'ana', 1, 'member')", [ids.orgB]));
+  // Same login, different account (a renamed and re-registered username): must never be claimable by user 1.
+  await asOrg(ids.orgA!, () => app.query("INSERT INTO invitations (org_id, github_login, github_id, role) VALUES ($1, 'ana', 999, 'admin')", [ids.orgA]));
 }, 60_000);
 
 afterAll(async () => {
@@ -128,8 +130,8 @@ describe.skipIf(!available)('tenant isolation in PostgreSQL', () => {
     expect((await app.query('SELECT resolve_repository($1) AS org', [ids.repoA])).rows[0].org).toBe(ids.orgA);
     expect((await app.query('SELECT * FROM resolve_share_link($1)', ['nope'])).rowCount).toBe(0);
     expect((await app.query('SELECT repository_id FROM monitored_repositories()')).rows.map((r) => r.repository_id)).toEqual([ids.repoB]);
-    expect((await app.query('SELECT claim_invitations($1, $2) AS n', ['ana', ids.user])).rows[0].n).toBe(1);
-    expect((await app.query('SELECT role FROM memberships WHERE user_id = $1', [ids.user])).rows[0].role).toBe('member');
+    expect((await app.query('SELECT claim_invitations($1, $2) AS n', [1, ids.user])).rows[0].n).toBe(1);
+    expect((await app.query('SELECT org_id, role FROM memberships WHERE user_id = $1', [ids.user])).rows).toEqual([{ org_id: ids.orgB, role: 'member' }]);
   });
 
   it('keeps the audit trail append-only', async () => {
@@ -139,6 +141,11 @@ describe.skipIf(!available)('tenant isolation in PostgreSQL', () => {
     await owner.query("SELECT set_config('app.org_id', $1, true)", [ids.orgA]);
     await expect(owner.query("UPDATE audit_events SET action = 'x'")).rejects.toThrow(/append-only|immutable/i);
     await owner.query('ROLLBACK');
+  });
+
+  it('keeps definer functions away from other database roles', async () => {
+    const r = await owner.query("SELECT has_function_privilege('public', 'resolve_share_link(text)', 'EXECUTE') AS pub, has_function_privilege($1, 'resolve_share_link(text)', 'EXECUTE') AS app", [appRole]);
+    expect(r.rows[0]).toEqual({ pub: false, app: true });
   });
 
   it('gives the application role no way to create objects', async () => {

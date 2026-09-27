@@ -333,3 +333,11 @@ export function computeReadiness(questions: DiligenceAnswer[], findings: Finding
 export function unknownId(area: Area, statement: string): string {
   return stableId('uk', area, statement);
 }
+
+/**
+ * Shown next to every readiness level. The level measures how completely the
+ * evidence answers the diligence questions; it must never read as a verdict on
+ * the software itself.
+ */
+export const READINESS_SCOPE =
+  'The level says how completely the evidence answers the diligence questions, not whether the software is good, secure or free of legal risk. AcquiCode does not run or test the code, audit its design, inspect infrastructure or data handling, or give legal advice, and it sees only the repositories listed under Scope.';

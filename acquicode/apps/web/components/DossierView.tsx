@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import type { Audience, Dossier, EvidenceItem, Finding } from '@acquicode/engine';
+import { READINESS_SCOPE, type Audience, type Dossier, type EvidenceItem, type Finding } from '@acquicode/engine';
 import { Mat, State, Status } from './ui';
 
 export const VIEWS = ['summary', 'questions', 'findings', 'ai', 'ownership', 'dependencies', 'unknowns', 'evidence'] as const;
@@ -98,6 +98,7 @@ export function DossierView({ d, view, base, downloads, extra }: { d: Dossier; v
               <li key={r}>{r}</li>
             ))}
           </ul>
+          <p className="small muted" style={{ margin: '0.6rem 0 0' }}>{READINESS_SCOPE}</p>
         </div>
       </div>
 

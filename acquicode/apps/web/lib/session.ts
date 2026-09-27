@@ -127,7 +127,7 @@ export async function upsertGithubUser(gh: { id: number; login: string; name: st
     const u = await q1<{ id: string }>('INSERT INTO users (github_id, login, name, email, last_login_at) VALUES ($1, $2, $3, $4, now()) RETURNING id', [gh.id, gh.login, gh.name, gh.email]);
     userId = u!.id;
   }
-  await q('SELECT claim_invitations($1, $2)', [gh.login, userId]);
+  await q('SELECT claim_invitations($1, $2)', [gh.id, userId]);
   const memberships = await q1<{ n: string }>('SELECT count(*)::text AS n FROM memberships WHERE user_id = $1', [userId]);
   if (memberships?.n === '0') {
     const org = await q1<{ id: string }>('INSERT INTO orgs (name) VALUES ($1) RETURNING id', [gh.name ? `${gh.name}'s workspace` : `${gh.login}'s workspace`]);

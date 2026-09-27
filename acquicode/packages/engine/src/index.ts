@@ -16,7 +16,7 @@ export {
 export { canonicalJson, sha256Hex, stableId } from './canonical.js';
 export { combineAll, combineAny, capAt, isSupported, strength } from './states.js';
 export { RULES, type RuleId, type RuleDef } from './rules.js';
-export { QUESTIONS } from './diligence/questions.js';
+export { QUESTIONS, READINESS_SCOPE } from './diligence/questions.js';
 export { renderDossierHtml, esc, type RenderOptions } from './dossier/html.js';
 export { toCycloneDx } from './dossier/cyclonedx.js';
 export {

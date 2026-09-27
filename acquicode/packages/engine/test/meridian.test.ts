@@ -177,5 +177,7 @@ describe('Meridian Systems regression fixture', () => {
     for (const section of ['Executive Summary', 'Repository Inventory', 'Software Ownership Evidence', 'AI Development Evidence', 'Dependency &amp; License Analysis', 'Security Exposure', 'Build &amp; Reproducibility', 'Maintainability', 'Material Unknowns', 'Questions for Management', 'Questions for Counsel', 'Questions for Engineering', 'Evidence Index', 'Signed Manifest']) {
       expect(html).toContain(section);
     }
+    // The readiness level always travels with what it does not mean.
+    expect(html).toContain('not whether the software is good, secure or free of legal risk');
   });
 });

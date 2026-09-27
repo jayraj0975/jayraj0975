@@ -5,6 +5,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { spawn, type ChildProcess } from 'node:child_process';
+import { createServer, type Server } from 'node:http';
 import { createHash, generateKeyPairSync, randomBytes, createHmac } from 'node:crypto';
 import { existsSync, mkdtempSync, rmSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -17,6 +18,9 @@ const ADMIN_URL = process.env.TEST_DATABASE_ADMIN_URL ?? 'postgres://postgres:po
 const PORT = 3100 + Math.floor(Math.random() * 500);
 const BASE = `http://127.0.0.1:${PORT}`;
 const WEB = resolve(__dirname, '..');
+const GH_PORT = PORT + 1000;
+const GH = `http://127.0.0.1:${GH_PORT}`;
+const appKey = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
 const SERVER = join(WEB, '.next/standalone/apps/web/server.js');
 const built = existsSync(SERVER) && existsSync(join(WEB, 'dist-node/worker/index.mjs'));
 
@@ -51,6 +55,13 @@ const env: NodeJS.ProcessEnv = {
   STORAGE_DIR: join(tmp, 'blobs'),
   WORK_DIR: join(tmp, 'work'),
   GITHUB_WEBHOOK_SECRET: 'gh-webhook-secret',
+  GITHUB_APP_ID: '4242',
+  GITHUB_APP_SLUG: 'acquicode-test',
+  GITHUB_APP_PRIVATE_KEY: appKey,
+  GITHUB_CLIENT_ID: 'Iv1.test',
+  GITHUB_CLIENT_SECRET: 'client-secret',
+  GITHUB_API_URL: GH,
+  GITHUB_WEB_URL: GH,
   STRIPE_SECRET_KEY: 'sk_test_unused',
   STRIPE_WEBHOOK_SECRET: 'stripe-webhook-secret',
   ACQUICODE_RUNNER: join(WEB, 'dist-node/worker/runner.mjs'),
@@ -99,8 +110,68 @@ function repoZip(): Uint8Array {
   });
 }
 
+
+/**
+ * A stand-in for github.com and api.github.com: OAuth code exchange, the user
+ * APIs and the App installation APIs, with fixed accounts:
+ *   code "alice"    → GitHub user 1001, can access installation 555
+ *   code "bob"      → GitHub user 2002, can access installation 666
+ *   code "bob-555"  → GitHub user 2002, can access installations 555 and 666
+ *   code "carol"    → GitHub user 3003 (login carol)
+ *   code "impostor" → GitHub user 4004 (login carol: the username changed hands)
+ */
+const ACCOUNTS: Record<string, { id: number; login: string; installations: number[] }> = {
+  alice: { id: 1001, login: 'alice', installations: [555] },
+  bob: { id: 2002, login: 'bob', installations: [666] },
+  'bob-555': { id: 2002, login: 'bob', installations: [555, 666] },
+  carol: { id: 3003, login: 'carol', installations: [] },
+  impostor: { id: 4004, login: 'carol', installations: [] },
+};
+let fakeGithub: Server;
+function startFakeGithub(): Promise<void> {
+  fakeGithub = createServer((req, res) => {
+    let body = '';
+    req.on('data', (c: Buffer) => (body += c.toString()));
+    req.on('end', () => {
+      const url = new URL(req.url ?? '/', GH);
+      const auth = req.headers.authorization ?? '';
+      const who = auth.startsWith('Bearer user-') ? ACCOUNTS[auth.slice('Bearer user-'.length)] : undefined;
+      const json = (status: number, data: unknown) => {
+        res.writeHead(status, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(data));
+      };
+      const p = url.pathname;
+      if (req.method === 'POST' && p === '/login/oauth/access_token') {
+        const code = (JSON.parse(body || '{}') as { code?: string }).code ?? '';
+        return ACCOUNTS[code] ? json(200, { access_token: `user-${code}` }) : json(200, { error: 'bad_verification_code' });
+      }
+      if (p === '/user' && who) return json(200, { id: who.id, login: who.login, name: who.login, email: `${who.login}@example.com` });
+      if (p === '/user/emails' && who) return json(200, []);
+      if (p === '/user/installations' && who) return json(200, { total_count: who.installations.length, installations: who.installations.map((id) => ({ id })) });
+      const user = /^\/users\/([^/]+)$/.exec(p);
+      if (user) {
+        const acct = Object.values(ACCOUNTS).find((a) => a.login === user[1] && a.id !== 4004);
+        return acct ? json(200, { id: acct.id, login: acct.login, type: 'User' }) : json(404, { message: 'Not Found' });
+      }
+      const inst = /^\/app\/installations\/(\d+)(\/access_tokens)?$/.exec(p);
+      if (inst && auth.startsWith('Bearer ey')) {
+        if (inst[2]) return json(201, { token: `inst-${inst[1]}`, expires_at: new Date(Date.now() + 3600e3).toISOString() });
+        return json(200, { id: Number(inst[1]), account: { login: inst[1] === '555' ? 'acme' : 'mallory-co', type: 'Organization' }, suspended_at: null });
+      }
+      if (p === '/installation/repositories' && auth.startsWith('Bearer inst-')) {
+        const id = auth.slice('Bearer inst-'.length);
+        const owner = id === '555' ? 'acme' : 'mallory-co';
+        return json(200, { repositories: [{ id: Number(id) * 10, full_name: `${owner}/api`, default_branch: 'main', clone_url: `${GH}/${owner}/api.git`, private: true, archived: false }] });
+      }
+      json(404, { message: 'Not Found' });
+    });
+  });
+  return new Promise((ok) => fakeGithub.listen(GH_PORT, '127.0.0.1', () => ok()));
+}
+
 beforeAll(async () => {
   if (!ready) return;
+  await startFakeGithub();
   const admin = new pg.Client({ connectionString: ADMIN_URL });
   await admin.connect();
   await admin.query(`CREATE DATABASE ${dbName}`);
@@ -123,6 +194,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   for (const p of procs) p.kill('SIGTERM');
+  fakeGithub?.close();
   await owner?.end();
   if (ready) {
     const admin = new pg.Client({ connectionString: ADMIN_URL });
@@ -195,6 +267,7 @@ describe.skipIf(!ready)('AcquiCode end to end', () => {
     const html = await page.text();
     expect(html).toMatch(/BLOCKED/);
     expect(html).not.toContain('AKIA' + 'E2EFIXTUREKEY001');
+    expect(html).toMatch(/not whether the software is good, secure or free of legal risk/);
   }, 120_000);
 
   it('stores dossiers encrypted at rest', async () => {
@@ -298,10 +371,57 @@ describe.skipIf(!ready)('AcquiCode end to end', () => {
     expect((await fetch(`${BASE}/api/billing/webhook`, { method: 'POST', body: '{}', headers: { 'stripe-signature': 't=1,v1=00' } })).status).toBe(400);
   });
 
+  it('connects a GitHub installation only after GitHub confirms the signed-in user can access it', async () => {
+    await owner.query('UPDATE users SET github_id = 1001 WHERE id = $1', [alice.userId]);
+    await owner.query('UPDATE users SET github_id = 2002 WHERE id = $1', [bob.userId]);
+    const installState = async (who: Actor) => new URL((await http('/api/github/install', { method: 'POST', as: who })).headers.get('location')!).searchParams.get('state')!;
+    const setup = async (who: Actor, installation: number) => {
+      const r = await http(`/api/github/setup?installation_id=${installation}&setup_action=install&state=${encodeURIComponent(await installState(who))}`, { as: who });
+      const loc = new URL(r.headers.get('location')!);
+      expect(`${loc.origin}${loc.pathname}`).toBe(`${GH}/login/oauth/authorize`);
+      return loc.searchParams.get('state')!;
+    };
+    const callback = async (who: Actor, verify: string, code: string) =>
+      decodeURIComponent((await http(`/api/auth/github/callback?code=${code}&state=${encodeURIComponent(verify)}`, { as: who })).headers.get('location') ?? '');
+
+    // Another organisation's admin replays alice's installation id: GitHub does not list it for them.
+    expect(await callback(bob, await setup(bob, 555), 'bob')).toMatch(/does not list that installation/);
+    // Their session, but authorising as a different GitHub account.
+    expect(await callback(bob, await setup(bob, 555), 'alice')).toMatch(/not the account you are signed in with/);
+    // A state issued to one session cannot be completed by another.
+    expect(await callback(bob, await setup(alice, 555), 'bob-555')).toMatch(/another session/);
+    // The legitimate path.
+    expect(await callback(alice, await setup(alice, 555), 'alice')).toMatch(/Connected acme: 1 repository added/);
+    // Genuine GitHub access is still not enough once the installation belongs to another organisation.
+    expect(await callback(bob, await setup(bob, 555), 'bob-555')).toMatch(/already connected to another AcquiCode organisation/);
+
+    const repos = await owner.query("SELECT org_id, full_name, installation_id::int AS inst FROM repositories WHERE provider = 'github'");
+    expect(repos.rows).toEqual([{ org_id: alice.orgId, full_name: 'acme/api', inst: 555 }]);
+    expect((await owner.query('SELECT org_id FROM github_installations')).rows).toEqual([{ org_id: alice.orgId }]);
+  });
+
+  it('binds invitations to the GitHub account, not the username', async () => {
+    const inv = await http('/api/members/invite', { method: 'POST', as: alice, body: new URLSearchParams({ login: 'carol', role: 'member' }) });
+    expect(decodeURIComponent(inv.headers.get('location')!)).toMatch(/carol will join as member/);
+    const signIn = async (code: string) => {
+      const start = await http('/api/auth/github/start', { method: 'POST' });
+      const cookie = start.headers.get('set-cookie')!.split(';')[0]!;
+      const state = new URL(start.headers.get('location')!).searchParams.get('state')!;
+      const cb = await fetch(`${BASE}/api/auth/github/callback?code=${code}&state=${encodeURIComponent(state)}`, { headers: { cookie }, redirect: 'manual' });
+      expect(cb.headers.get('location')).toMatch(/\/app$/);
+      const r = await owner.query<{ orgs: string[] }>('SELECT array_agg(m.org_id::text) AS orgs FROM users u JOIN memberships m ON m.user_id = u.id WHERE u.github_id = $1', [ACCOUNTS[code]!.id]);
+      return r.rows[0]!.orgs;
+    };
+    // Someone who now holds the username "carol" signs in first: they get their own workspace only.
+    expect(await signIn('impostor')).not.toContain(alice.orgId);
+    // The account that was invited joins.
+    expect(await signIn('carol')).toContain(alice.orgId);
+  });
+
   it('records an append-only audit trail', async () => {
     const r = await owner.query('SELECT action FROM audit_events WHERE org_id = $1 ORDER BY id', [alice.orgId]);
     const actions = r.rows.map((x: { action: string }) => x.action);
-    for (const a of ['upload.received', 'scan.succeeded', 'dossier.downloaded', 'share_link.created', 'share_link.viewed', 'share_link.revoked', 'declarations.saved', 'api_token.created', 'dossier.pushed']) expect(actions).toContain(a);
+    for (const a of ['upload.received', 'scan.succeeded', 'dossier.downloaded', 'share_link.created', 'share_link.viewed', 'share_link.revoked', 'declarations.saved', 'api_token.created', 'dossier.pushed', 'github.installation_connected', 'member.invited']) expect(actions).toContain(a);
   });
 
   it('deletes a repository and its encrypted dossiers', async () => {

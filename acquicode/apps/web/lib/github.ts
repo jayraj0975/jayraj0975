@@ -1,4 +1,4 @@
-import { createSign } from 'node:crypto';
+import { createHash, createSign } from 'node:crypto';
 import { config } from './config';
 import { hmacSha256Hex, safeEqual } from './crypto';
 import { HttpError } from './errors';
@@ -89,8 +89,15 @@ export function oauthAuthorizeUrl(state: string): string {
   return u.toString();
 }
 
-/** Exchange an OAuth code for the user's identity. The user token is used once and discarded. */
-export async function githubIdentity(code: string): Promise<{ id: number; login: string; name: string | null; email: string | null }> {
+export interface GithubIdentity {
+  id: number;
+  login: string;
+  name: string | null;
+  email: string | null;
+}
+
+/** Exchange an OAuth code for a user token. The token lives only for the current request. */
+async function exchangeCode(code: string): Promise<string> {
   const c = config();
   const res = await fetch(new URL('/login/oauth/access_token', c.GITHUB_WEB_URL), {
     method: 'POST',
@@ -100,17 +107,69 @@ export async function githubIdentity(code: string): Promise<{ id: number; login:
   });
   const tok = (await res.json()) as { access_token?: string; error?: string };
   if (!tok.access_token) throw new HttpError(401, `GitHub sign-in failed${tok.error ? `: ${tok.error}` : ''}`);
-  const user = await gh<{ id: number; login: string; name: string | null; email: string | null }>('/user', { token: tok.access_token });
+  return tok.access_token;
+}
+
+async function identityFromToken(token: string): Promise<GithubIdentity> {
+  const user = await gh<GithubIdentity>('/user', { token });
   let email = user.email;
   if (!email) {
     try {
-      const emails = await gh<Array<{ email: string; primary: boolean; verified: boolean }>>('/user/emails', { token: tok.access_token });
+      const emails = await gh<Array<{ email: string; primary: boolean; verified: boolean }>>('/user/emails', { token });
       email = emails.find((e) => e.primary && e.verified)?.email ?? null;
     } catch {
       email = null;
     }
   }
   return { id: user.id, login: user.login, name: user.name, email };
+}
+
+/** Exchange an OAuth code for the user's identity. The user token is used once and discarded. */
+export async function githubIdentity(code: string): Promise<GithubIdentity> {
+  return identityFromToken(await exchangeCode(code));
+}
+
+/**
+ * Exchange an OAuth code and return the identity plus the ids of the App
+ * installations that GitHub says this user can access. Used to verify an
+ * installation before binding it to an organisation: the installation_id that
+ * GitHub appends to the setup URL is just a query parameter anyone can edit.
+ */
+export async function githubIdentityWithInstallations(code: string): Promise<{ identity: GithubIdentity; installations: Set<number> }> {
+  const token = await exchangeCode(code);
+  const identity = await identityFromToken(token);
+  const installations = new Set<number>();
+  for (let page = 1; page <= 20; page++) {
+    const r = await gh<{ installations: Array<{ id: number }> }>(`/user/installations?per_page=100&page=${page}`, { token });
+    for (const i of r.installations) installations.add(i.id);
+    if (r.installations.length < 100) break;
+  }
+  return { identity, installations };
+}
+
+/** Development sign-in ids: stable, negative, and never equal to a real GitHub id. */
+export function devGithubId(login: string): number {
+  return -Number.parseInt(createHash('sha256').update(login.toLowerCase()).digest('hex').slice(0, 12), 16);
+}
+
+/**
+ * Resolve a GitHub username to its immutable numeric id. Invitations bind to
+ * the id: usernames can be renamed and then registered by someone else.
+ */
+export async function resolveGithubLogin(login: string, dev = false): Promise<{ id: number; login: string }> {
+  if (dev) return { id: devGithubId(login), login };
+  const c = config();
+  const res = await fetch(`${c.GITHUB_API_URL}/users/${encodeURIComponent(login)}`, {
+    headers: { accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28', 'user-agent': 'acquicode' },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (res.status === 404) throw new HttpError(400, `There is no GitHub user called ${login}`);
+  if (res.status === 403 || res.status === 429) throw new HttpError(503, 'GitHub is rate-limiting username lookups; try again in a few minutes');
+  if (!res.ok) throw new HttpError(502, `GitHub returned ${res.status} looking up ${login}`);
+  const u = (await res.json()) as { id?: unknown; login?: unknown; type?: unknown };
+  if (typeof u.id !== 'number' || typeof u.login !== 'string') throw new HttpError(502, 'Unexpected response from GitHub');
+  if (u.type !== 'User') throw new HttpError(400, `${u.login} is an organisation, not a person`);
+  return { id: u.id, login: u.login };
 }
 
 export function verifyGithubSignature(body: Buffer, signature: string | null): boolean {
