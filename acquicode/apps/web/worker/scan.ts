@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { checkInvariants, extractZipSafely, gitEnv, SAFE_CONFIG, type Dossier } from '@acquicode/engine';
@@ -29,6 +29,19 @@ interface ScanRow {
   enrichment_enabled: boolean;
 }
 
+/**
+ * Children run in their own process group so a timeout kills everything they
+ * started (git spawns git-remote-https, the runner spawns git), leaving no
+ * orphans for PID 1 to reap.
+ */
+function killTree(child: ChildProcess): void {
+  try {
+    if (child.pid) process.kill(-child.pid, 'SIGKILL');
+  } catch {
+    child.kill('SIGKILL');
+  }
+}
+
 /** Clone with credentials passed through an askpass helper, never on the command line or in git config. */
 async function cloneBare(url: string, username: string, password: string, dest: string, workDir: string, extraConfig: string[] = []): Promise<void> {
   const helper = join(workDir, 'askpass.sh');
@@ -37,12 +50,12 @@ async function cloneBare(url: string, username: string, password: string, dest: 
   const env = { ...gitEnv(), GIT_ASKPASS: helper, ACQ_GIT_USERNAME: username, ACQ_GIT_PASSWORD: password };
   const git = (args: string[], cwd: string, allowFailure = false) =>
     new Promise<void>((resolvePromise, reject) => {
-      const child = spawn('git', [...SAFE_CONFIG, '-c', 'credential.helper=', '-c', 'http.followRedirects=false', ...extraConfig.flatMap((x) => ['-c', x]), ...args], { cwd, env, stdio: ['ignore', 'ignore', 'pipe'] });
+      const child = spawn('git', [...SAFE_CONFIG, '-c', 'credential.helper=', '-c', 'http.followRedirects=false', ...extraConfig.flatMap((x) => ['-c', x]), ...args], { cwd, env, stdio: ['ignore', 'ignore', 'pipe'], detached: true });
       let stderr = '';
       child.stderr.on('data', (c: Buffer) => {
         if (stderr.length < 4000) stderr += c.toString();
       });
-      const timer = setTimeout(() => child.kill('SIGKILL'), 15 * 60_000);
+      const timer = setTimeout(() => killTree(child), 15 * 60_000);
       child.on('close', (code) => {
         clearTimeout(timer);
         if (code === 0 || allowFailure) resolvePromise();
@@ -61,12 +74,12 @@ function runAnalysis(input: object, timeoutSeconds: number): Promise<void> {
   const cmd = isTs ? resolve(process.cwd(), 'node_modules/.bin/tsx') : process.execPath;
   const args = isTs ? [runner] : ['--max-old-space-size=4096', runner];
   return new Promise((resolvePromise, reject) => {
-    const child = spawn(cmd, args, { stdio: ['pipe', 'ignore', 'pipe'], env: { PATH: process.env.PATH ?? '', NODE_ENV: process.env.NODE_ENV ?? 'production', HOME: process.env.HOME ?? '/tmp' } });
+    const child = spawn(cmd, args, { stdio: ['pipe', 'ignore', 'pipe'], env: { PATH: process.env.PATH ?? '', NODE_ENV: process.env.NODE_ENV ?? 'production', HOME: process.env.HOME ?? '/tmp' }, detached: true });
     let stderr = '';
     child.stderr.on('data', (c: Buffer) => {
       if (stderr.length < 20_000) stderr += c.toString();
     });
-    const timer = setTimeout(() => child.kill('SIGKILL'), timeoutSeconds * 1000);
+    const timer = setTimeout(() => killTree(child), timeoutSeconds * 1000);
     child.on('close', (code, signal) => {
       clearTimeout(timer);
       if (code === 0) return resolvePromise();

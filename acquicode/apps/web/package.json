@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build && pnpm run build:node",
-    "build:node": "esbuild worker/index.ts worker/runner.ts scripts/migrate.ts --bundle --platform=node --format=esm --target=node22 --outdir=dist-node --packages=external --out-extension:.js=.mjs",
+    "build:node": "esbuild worker/index.ts worker/runner.ts scripts/migrate.ts --bundle --platform=node --format=esm --target=node22 --outdir=dist-node --external:pg-native --banner:js=\"import { createRequire as __acqCreateRequire } from 'node:module'; const require = __acqCreateRequire(import.meta.url);\" --out-extension:.js=.mjs --log-level=warning",
     "start": "next start",
     "worker": "node dist-node/worker/index.mjs",
     "migrate": "node dist-node/scripts/migrate.mjs",

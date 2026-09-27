@@ -1,0 +1,8 @@
+# TLS termination for docker compose --profile tls. Set DOMAIN and TRUST_PROXY=1.
+{$DOMAIN} {
+	encode zstd gzip
+	request_body {
+		max_size 250MB
+	}
+	reverse_proxy web:3000
+}
