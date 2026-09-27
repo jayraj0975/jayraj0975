@@ -1,6 +1,33 @@
 # Why not
 
-What we decided not to build, and the conditions under which we would stop building this at all.
+The strongest reasons AcquiCode could fail, the conditions under which we would stop, and the directions we rejected.
+
+## 0. The strongest reasons the company could fail
+
+Ranked by how likely each is to kill the company, not by how comfortable it is to discuss.
+
+1. **The buyer is episodic.**
+   - A company sells itself once. Readiness is a one-time purchase at the moment the customer is most distracted, and it is usually bought on an advisor's recommendation.
+   - If Custody and Acquirer don't retain, revenue is a treadmill of new logos whose acquisition cost resets every time.
+2. **Nobody has paid yet.**
+   - Every price in PRODUCT.md is an anchor, not a result.
+   - Willingness to pay (A1), buyer acceptance (A2) and recurrence (A3) are all untested.
+   - The software is further along than the evidence that anyone wants it.
+3. **Black Duck already sells to sellers.**
+   - It has the brand M&A lawyers trust, snippet matching we lack, and a page that now names both sellers and AI.
+   - If it ships a cheaper self-serve tier, our price advantage becomes a feature comparison we lose on depth.
+4. **Seller-produced evidence may never be trusted.**
+   - Reproducibility is a strong argument to engineers. Deal lawyers may still prefer a human auditor's letter.
+   - If buyers won't accept SELF_ATTESTED or even PLATFORM_ATTESTED dossiers, the two-sided loop, and with it the moat, never forms.
+5. **The AI section may usually say "unknown".**
+   - Most repositories record little AI attribution today, and what is recorded can be wrong (the VS Code episode).
+   - If real customers' dossiers are mostly unknowns, the headline differentiator shrinks to ownership, licenses and secrets, where incumbents are strong.
+6. **Distribution runs through gatekeepers.**
+   - M&A advisors, lawyers and acquirers decide what sellers buy, and they are relationship businesses.
+   - A small team without that network may spend its runway earning introductions.
+7. **The trust surface is unforgiving.**
+   - A single cross-tenant leak, or a dossier that over-claims in a live deal, ends the company.
+   - This build found and fixed several serious flaws in adversarial QA; the next one may be found by a customer.
 
 ## 1. Directions rejected
 
