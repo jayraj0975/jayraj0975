@@ -1,0 +1,42 @@
+{
+  "name": "@acquicode/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "UNLICENSED",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build && pnpm run build:node",
+    "build:node": "esbuild worker/index.ts worker/runner.ts scripts/migrate.ts --bundle --platform=node --format=esm --target=node22 --outdir=dist-node --packages=external --out-extension:.js=.mjs",
+    "start": "next start",
+    "worker": "node dist-node/worker/index.mjs",
+    "migrate": "node dist-node/scripts/migrate.mjs",
+    "dev:worker": "tsx worker/index.ts",
+    "dev:migrate": "tsx scripts/migrate.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@acquicode/engine": "workspace:*",
+    "@aws-sdk/client-s3": "^3.1141.0",
+    "next": "16.3.6",
+    "pg": "^8.23.0",
+    "pino": "^10.3.1",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "yaml": "^2.9.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.4",
+    "@types/pg": "^8.23.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "esbuild": "^0.28.2",
+    "fflate": "^0.8.3",
+    "tsx": "^4.23.15",
+    "typescript": "5.9.3",
+    "vitest": "^4.1.11"
+  }
+}

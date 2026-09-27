@@ -41,7 +41,7 @@ Usage:
   acquicode diff <old.json> <new.json> [--out f] What materially changed between snapshots
   acquicode render <dossier.json> [--out f]      Render a dossier to standalone HTML
   acquicode keygen [--out dir]                   Create an Ed25519 signing key pair
-  acquicode push <dossier.json> --server URL --token TOKEN [--envelope f]
+  acquicode push <dossier.json> --server URL --token TOKEN [--envelope f --key pub.pem]
                                                  Upload a dossier (no source code) to an AcquiCode workspace
 
 scan options:
@@ -293,10 +293,15 @@ async function main(): Promise<void> {
       return;
     }
     case 'push': {
-      const { values, positionals } = parseArgs({ args: rest, allowPositionals: true, options: { server: { type: 'string' }, token: { type: 'string' }, envelope: { type: 'string' } } });
+      const { values, positionals } = parseArgs({ args: rest, allowPositionals: true, options: { server: { type: 'string' }, token: { type: 'string' }, envelope: { type: 'string' }, key: { type: 'string' } } });
       const token = values.token ?? process.env.ACQUICODE_TOKEN;
       if (!positionals[0] || !values.server || !token) fail('push needs <dossier.json> --server URL and --token (or ACQUICODE_TOKEN)');
-      const body = { dossier: await readJson<Dossier>(positionals[0]), envelope: values.envelope ? await readJson<DsseEnvelope>(values.envelope) : null };
+      if (values.envelope && !values.key) fail('push --envelope needs --key <signer.pub.pem> so the server can verify the signature');
+      const body = {
+        dossier: await readJson<Dossier>(positionals[0]),
+        envelope: values.envelope ? await readJson<DsseEnvelope>(values.envelope) : null,
+        publicKey: values.key ? await readFile(values.key, 'utf8') : undefined,
+      };
       const url = new URL('/api/v1/dossiers', values.server);
       if (url.protocol !== 'https:' && url.hostname !== 'localhost' && url.hostname !== '127.0.0.1') fail('refusing to push over plain HTTP');
       const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify(body) });

@@ -8,3 +8,5 @@ coverage/
 /data/
 /tmp/
 *.log
+dist-node/
+apps/web/data/
