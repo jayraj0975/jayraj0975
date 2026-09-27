@@ -105,6 +105,39 @@ describe('forged or weak provenance stays weak', () => {
     expect(d.questions.find((q) => q.id === 'Q-AI-1')?.status).toBe('ATTENTION');
   });
 
+  it('never lets an editor-inserted trailer become attribution or a contradiction', async () => {
+    const r = repo();
+    r.write('acquicode.yml', 'ai_usage: none\n');
+    r.write('src/a.ts', 'export const a = 1;\n');
+    // VS Code 1.117 added this trailer even with AI features disabled.
+    r.commit('Add a\n\nCo-authored-by: Copilot <copilot@github.com>');
+    r.write('src/b.ts', 'export const b = 2;\n');
+    r.commit('Add b\n\nCo-authored-by: Copilot <copilot@github.com>\nCo-Authored-By: Claude <noreply@anthropic.com>');
+    const d = await run(r);
+    expect(d.files.find((f) => f.path === 'src/a.ts')?.ai).toMatchObject({ category: 'corroborating', tools: ['github-copilot'], state: 'OBSERVED' });
+    expect(d.files.find((f) => f.path === 'src/b.ts')?.ai?.category).toBe('direct_commit');
+    expect(d.aiDevelopment.commits).toMatchObject({ withDirectEvidence: 1, withEditorTrailerOnly: 1 });
+    const editorFinding = d.findings.find((f) => f.rule === 'AI-013');
+    expect(editorFinding?.state).toBe('INFERRED');
+    expect(editorFinding?.summary).toMatch(/neither confirm nor contradict/);
+    // The only contradiction is the Claude-attributed commit, not the editor trailer.
+    expect(d.findings.find((f) => f.rule === 'AI-002')?.summary).toMatch(/records 1 AI-attributed commit/);
+    expect(d.aiDevelopment.tools.find((t) => t.tool === 'github-copilot')).toMatchObject({ commits: 0, state: 'INFERRED' });
+    for (const e of d.evidence.filter((x) => x.attributes.reliability === 'editor_inserted')) expect(e.evidenceClass).toBe('CORROBORATING');
+  });
+
+  it('does not contradict a "no AI" declaration with editor trailers alone', async () => {
+    const r = repo();
+    r.write('acquicode.yml', 'ai_usage: none\n');
+    r.write('src/a.ts', 'export const a = 1;\n');
+    r.commit('Add a\n\nCo-authored-by: Copilot <copilot@github.com>');
+    const d = await run(r);
+    expect(d.findings.some((f) => f.rule === 'AI-002')).toBe(false);
+    expect(d.findings.some((f) => f.rule === 'AI-013')).toBe(true);
+    // Neither SATISFIED (the trailer is a signal) nor CONFLICTING (it proves nothing): unknown.
+    expect(d.questions.find((q) => q.id === 'Q-AI-1')?.status).toBe('UNKNOWN');
+  });
+
   it('keeps "no evidence" unknown rather than human', async () => {
     const r = repo();
     r.write('src/a.ts', 'export const a = 1;\n');

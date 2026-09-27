@@ -166,6 +166,15 @@ describe('AI signals', () => {
     expect(commitSignals({ ...base, trailers: [['Co-authored-by', 'Cursor Agent <cursoragent@cursor.com>']] })[0]).toMatchObject({ tool: 'cursor' });
     expect(commitSignals({ ...base, trailers: [['Assisted-by', 'GitHub Copilot']] })[0]).toMatchObject({ tool: 'github-copilot' });
   });
+  it('treats the VS Code editor trailer as corroborating, not attribution', () => {
+    const vscode = commitSignals({ ...base, trailers: [['Co-authored-by', 'Copilot <copilot@github.com>']] });
+    expect(vscode).toHaveLength(1);
+    expect(vscode[0]).toMatchObject({ tool: 'github-copilot', reliability: 'editor_inserted' });
+    expect(vscode[0]!.caveat).toMatch(/microsoft\/vscode#313064/);
+    // The Copilot coding agent's own identity is still direct.
+    expect(commitSignals({ ...base, trailers: [['Co-authored-by', 'Copilot <198982749+Copilot@users.noreply.github.com>']] })[0]).toMatchObject({ reliability: 'direct' });
+    expect(commitSignals({ ...base, trailers: [['Co-Authored-By', 'Claude <noreply@anthropic.com>']] })[0]).toMatchObject({ reliability: 'direct' });
+  });
   it('does not treat human co-authors or automation bots as AI', () => {
     expect(commitSignals({ ...base, trailers: [['Co-authored-by', 'Claude Monet <claude@paint.test>']] })).toEqual([]);
     expect(commitSignals({ ...base, author: { name: 'dependabot[bot]', email: '49699333+dependabot[bot]@users.noreply.github.com' } })).toEqual([]);

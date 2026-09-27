@@ -95,30 +95,42 @@ export async function analyzeAi(ctx: RepoContext, suppliedTraces: SuppliedTrace[
   }
 
   // ---------------------------------------------------------------- commit-level signals
+  // Direct signals attribute a commit to a tool. Editor-inserted trailers only corroborate
+  // that a tool was present in the editor (see EDITOR_TRAILER_CAVEAT).
   const signalsByCommit = new Map<string, CommitSignal[]>();
+  const editorByCommit = new Map<string, CommitSignal[]>();
   const signalEvidence = new Map<string, string[]>();
+  const editorEvidence: string[] = [];
   const commitLabels = new Map<string, string[]>();
   for (const c of history?.commits ?? []) {
     const sigs = commitSignals(c);
     if (!sigs.length) continue;
-    signalsByCommit.set(c.id, sigs);
+    const direct = sigs.filter((s) => s.reliability === 'direct');
+    const editor = sigs.filter((s) => s.reliability === 'editor_inserted');
+    if (direct.length) signalsByCommit.set(c.id, direct);
+    if (editor.length) editorByCommit.set(c.id, editor);
     const ids: string[] = [];
     for (const s of sigs) {
-      ids.push(
-        evidence.add({
-          kind: 'commit.ai_signal',
-          detector: DETECTOR.signal,
-          state: 'OBSERVED',
-          evidenceClass: 'DIRECT',
-          locator: { commit: c.id },
-          extract: s.value,
-          attributes: { tool: s.tool, signal: s.kind, model: s.model, selfDeclared: true, signedCommit: c.signed },
-        }),
-      );
-      touchTool(s.tool, s.kind === 'bot_author' || s.kind === 'bot_committer' ? 'agent-authored-commit' : 'commit-metadata', 'OBSERVED', c.author.date, s.model, c.id);
+      const isDirect = s.reliability === 'direct';
+      const id = evidence.add({
+        kind: 'commit.ai_signal',
+        detector: DETECTOR.signal,
+        state: 'OBSERVED',
+        evidenceClass: isDirect ? 'DIRECT' : 'CORROBORATING',
+        locator: { commit: c.id },
+        extract: s.value,
+        attributes: { tool: s.tool, signal: s.kind, model: s.model, selfDeclared: true, signedCommit: c.signed, reliability: s.reliability, ...(s.caveat ? { caveat: s.caveat } : {}) },
+      });
+      ids.push(id);
+      if (isDirect) touchTool(s.tool, s.kind === 'bot_author' || s.kind === 'bot_committer' ? 'agent-authored-commit' : 'commit-metadata', 'OBSERVED', c.author.date, s.model, c.id);
+      else {
+        editorEvidence.push(id);
+        // The trailer is observed; that the tool took part in this change is only inferred.
+        touchTool(s.tool, 'editor-inserted-trailer', 'INFERRED', c.author.date, null);
+      }
     }
     signalEvidence.set(c.id, ids);
-    commitLabels.set(c.id, [...new Set(sigs.map((s) => `${s.tool}:${s.kind}`))].sort());
+    commitLabels.set(c.id, [...new Set(sigs.map((s) => `${s.tool}:${s.reliability === 'direct' ? s.kind : 'editor_trailer'}`))].sort());
   }
 
   // ---------------------------------------------------------------- line-level records
@@ -396,6 +408,12 @@ export async function analyzeAi(ctx: RepoContext, suppliedTraces: SuppliedTrace[
         status.linesFromAiCommits = st.fromAiCommits;
         if (st.human) status.humanLines = st.human;
       }
+    } else if (pathCommits.some((c) => editorByCommit.has(c.id))) {
+      const editorCommits = pathCommits.filter((c) => editorByCommit.has(c.id));
+      for (const c of editorCommits) for (const id of signalEvidence.get(c.id) ?? []) ev.add(id);
+      const toolsHere = new Set<string>();
+      for (const c of editorCommits) for (const sig of editorByCommit.get(c.id) ?? []) toolsHere.add(sig.tool);
+      status = { category: 'corroborating', tools: [...toolsHere].sort(), evidence: [], state: 'OBSERVED' };
     } else if (headerByPath.has(f.path)) {
       ev.add(headerByPath.get(f.path)!);
       status = { category: 'corroborating', tools: [], evidence: [], state: 'OBSERVED' };
@@ -408,7 +426,9 @@ export async function analyzeAi(ctx: RepoContext, suppliedTraces: SuppliedTrace[
     }
     if (headerByPath.has(f.path)) ev.add(headerByPath.get(f.path)!);
     if (st && st.total > 0 && st.human === st.total) counts.humanRecorded++;
-    status.evidence = [...ev].sort().slice(0, 25);
+    // Keep DIRECT items first so the cited sample always includes what justifies the category.
+    const rank = (id: string) => (evidence.get(id)?.evidenceClass === 'DIRECT' ? 0 : 1);
+    status.evidence = [...ev].sort((x, y) => rank(x) - rank(y) || (x < y ? -1 : x > y ? 1 : 0)).slice(0, 25);
     counts[status.category]++;
     f.ai = status;
   }
@@ -536,14 +556,14 @@ export async function analyzeAi(ctx: RepoContext, suppliedTraces: SuppliedTrace[
     findings.add({
       rule: 'AI-009',
       state: 'OBSERVED',
-      summary: `AI tool use is indicated (${agentConfigFiles.length ? `configuration files: ${agentConfigFiles.slice(0, 4).join(', ')}` : 'declared by the company'}) but no commit or line in the analysed history records AI attribution. The origin of individual files cannot be established from the repository.`,
+      summary: `AI tool use is indicated (${agentConfigFiles.length ? `configuration files: ${agentConfigFiles.slice(0, 4).join(', ')}` : 'declared by the company'}) but no commit or line in the analysed history records AI attribution${editorByCommit.size ? ` (${editorByCommit.size} commit(s) carry only an editor-inserted trailer, which does not attribute the change)` : ''}. The origin of individual files cannot be established from the repository.`,
       evidence: [],
       fingerprint: 'unrecorded',
     });
   }
   if (!haveLineRecords && history) {
     // Material unless the company declares no AI use and nothing in the repository says otherwise.
-    const anySignal = hasDirectSignals || agentConfigFiles.length > 0 || headerByPath.size > 0;
+    const anySignal = hasDirectSignals || agentConfigFiles.length > 0 || headerByPath.size > 0 || editorByCommit.size > 0;
     unknowns.add(
       'ai_development',
       'Which specific lines were written by AI tools',
@@ -561,8 +581,21 @@ export async function analyzeAi(ctx: RepoContext, suppliedTraces: SuppliedTrace[
     );
   }
 
-  // ---------------------------------------------------------------- declarations vs evidence
+  // ---------------------------------------------------------------- editor-inserted trailers
   const declaredNone = declarations?.aiUsage === 'none';
+  if (editorByCommit.size) {
+    const dates = [...editorByCommit.keys()].map((id) => history?.byId.get(id)?.author.date).filter((d): d is string => !!d).sort();
+    const onlyEditor = [...editorByCommit.keys()].filter((id) => !signalsByCommit.has(id)).length;
+    findings.add({
+      rule: 'AI-013',
+      state: 'INFERRED',
+      summary: `${editorByCommit.size} commit(s)${dates.length ? ` (${dates[0]!.slice(0, 10)} to ${dates.at(-1)!.slice(0, 10)})` : ''} carry the "Co-authored-by: Copilot <copilot@github.com>" trailer that the VS Code editor inserts; ${onlyEditor} have no other AI signal. It is counted as corroborating only: some VS Code versions added it to commits with no AI involvement, and it also marks single suggested words.${declaredNone ? ' The company declares no AI use; these trailers alone neither confirm nor contradict that.' : ''}`,
+      evidence: editorEvidence.slice(0, 60),
+      fingerprint: 'editor-trailer',
+    });
+  }
+
+  // ---------------------------------------------------------------- declarations vs evidence
   if (declaredNone && (hasDirect || agentConfigFiles.length)) {
     findings.add({
       rule: 'AI-002',
@@ -666,6 +699,7 @@ export async function analyzeAi(ctx: RepoContext, suppliedTraces: SuppliedTrace[
     commits: {
       total: history?.commits.length ?? 0,
       withDirectEvidence: directCommits.length,
+      withEditorTrailerOnly: [...editorByCommit.keys()].filter((id) => !aiCommitIds.has(id)).length,
       directEvidenceViaPullRequest: viaPr.length,
       directEvidencePushedDirectly: pushed.length,
     },

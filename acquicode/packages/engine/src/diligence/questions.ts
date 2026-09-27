@@ -87,12 +87,12 @@ export const QUESTIONS: QuestionDef[] = [
     id: 'Q-AI-1',
     area: 'ai_development',
     question: 'What evidence exists of AI involvement in the code, and is it consistent?',
-    rules: ['AI-001', 'AI-002', 'AI-003', 'AI-004', 'AI-006', 'AI-009', 'AI-011'],
+    rules: ['AI-001', 'AI-002', 'AI-003', 'AI-004', 'AI-006', 'AI-009', 'AI-011', 'AI-013'],
     evaluate: (c, own) => {
       const a = c.ai;
       const conflicts = has(own, 'AI-002', 'AI-003');
       if (!c.hasHistory) return { status: 'UNKNOWN', rationale: 'No git history: AI development evidence cannot be assessed.' };
-      const evidenceLine = `${a.files.direct_line} file(s) with line-level attribution, ${a.files.direct_commit} changed in AI-attributed commits, ${a.files.corroborating} with self-declared comments only, ${a.files.inference} flagged by inference only, ${a.files.none} with no evidence either way (of ${a.filesConsidered}).`;
+      const evidenceLine = `${a.files.direct_line} file(s) with line-level attribution, ${a.files.direct_commit} changed in AI-attributed commits, ${a.files.corroborating} with corroborating evidence only (self-declared comments or editor-inserted trailers), ${a.files.inference} flagged by inference only, ${a.files.none} with no evidence either way (of ${a.filesConsidered}).`;
       if (conflicts.length) return { status: 'ATTENTION', rationale: `Evidence and declarations conflict. ${evidenceLine}`, state: 'CONFLICTING' };
       if (has(own, 'AI-009', 'AI-011').length) return { status: 'ATTENTION', rationale: `${has(own, 'AI-009', 'AI-011').map((f) => f.title).join('; ')}. ${evidenceLine}` };
       const anySignal = a.commits.withDirectEvidence > 0 || a.repoSignals.agentConfigFiles.length > 0 || a.files.corroborating > 0;

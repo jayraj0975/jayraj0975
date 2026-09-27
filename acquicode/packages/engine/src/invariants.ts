@@ -9,6 +9,7 @@ import { SECRET_RULES } from './analyzers/secrets.js';
 export function checkInvariants(d: Dossier): string[] {
   const v: string[] = [];
   const evidenceIds = new Set(d.evidence.map((e) => e.id));
+  const byId = new Map(d.evidence.map((e) => [e.id, e]));
 
   for (const f of d.findings) {
     if (f.materiality === 'blocking' && f.state !== 'OBSERVED' && f.state !== 'VERIFIED') v.push(`I1 blocking finding ${f.id} rests on ${f.state} evidence`);
@@ -37,6 +38,10 @@ export function checkInvariants(d: Dossier): string[] {
     if (ai.category === 'inference' && ai.state !== 'INFERRED') v.push(`I6 ${f.path}: inference-only but state ${ai.state}`);
     if ((ai.category === 'direct_line' || ai.category === 'direct_commit') && (ai.state === 'INFERRED' || ai.state === 'UNKNOWN')) v.push(`I6 ${f.path}: direct evidence with state ${ai.state}`);
     for (const e of ai.evidence) if (!evidenceIds.has(e)) v.push(`I2 file ${f.path} cites missing evidence ${e}`);
+    // I11: a file counted as directly attributed must cite at least one DIRECT evidence item.
+    if ((ai.category === 'direct_line' || ai.category === 'direct_commit') && !ai.evidence.some((e) => byId.get(e)?.evidenceClass === 'DIRECT')) {
+      v.push(`I11 ${f.path}: ${ai.category} without a DIRECT evidence item`);
+    }
   }
   const a = d.aiDevelopment;
   const cats = a.files.direct_line + a.files.direct_commit + a.files.corroborating + a.files.inference + a.files.none;
@@ -46,6 +51,8 @@ export function checkInvariants(d: Dossier): string[] {
 
   for (const e of d.evidence) {
     if (e.evidenceClass === 'INFERENCE' && e.state !== 'INFERRED') v.push(`I10 inference evidence ${e.id} has state ${e.state}`);
+    // I12: editor-inserted signals can corroborate, never attribute.
+    if (e.attributes?.reliability === 'editor_inserted' && e.evidenceClass === 'DIRECT') v.push(`I12 editor-inserted signal ${e.id} classed as DIRECT`);
   }
 
   // I8: no provider-format secret value may appear anywhere in the text the dossier carries.

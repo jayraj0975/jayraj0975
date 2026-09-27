@@ -29,6 +29,7 @@ export const FOLLOW_UPS: Partial<Record<RuleId, Array<[Audience, string]>>> = {
     ['engineering', 'Record attribution going forward (git-ai notes or Agent Trace) and push refs/notes/* with the code.'],
   ],
   'AI-011': [['counsel', 'Assess the copyright position of files whose recorded authorship is predominantly AI, and whether human contribution is documented elsewhere.']],
+  'AI-013': [['management', 'Confirm whether GitHub Copilot was enabled in VS Code for the listed commits, and which git.addAICoAuthor setting and VS Code version applied.']],
   'AI-012': [['counsel', 'Document the source, training data and license of each committed model artifact.']],
   'LIC-002': [['counsel', 'Resolve which license applies to the company\'s own code and correct the conflicting declaration.']],
   'LIC-003': [['management', 'Confirm the intended license of this repository.']],

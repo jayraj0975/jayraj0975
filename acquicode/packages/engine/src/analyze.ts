@@ -396,6 +396,7 @@ function mergeAi(list: AiEvidenceSummary[]): AiEvidenceSummary {
     commits: {
       total: list.reduce((s, x) => s + x.commits.total, 0),
       withDirectEvidence: list.reduce((s, x) => s + x.commits.withDirectEvidence, 0),
+      withEditorTrailerOnly: list.reduce((s, x) => s + x.commits.withEditorTrailerOnly, 0),
       directEvidenceViaPullRequest: list.reduce((s, x) => s + x.commits.directEvidenceViaPullRequest, 0),
       directEvidencePushedDirectly: list.reduce((s, x) => s + x.commits.directEvidencePushedDirectly, 0),
     },

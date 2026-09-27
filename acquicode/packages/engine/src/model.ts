@@ -352,6 +352,8 @@ export interface AiEvidenceSummary {
   commits: {
     total: number;
     withDirectEvidence: number;
+    /** Commits whose only AI signal is an editor-inserted trailer (corroborating, not attribution). */
+    withEditorTrailerOnly: number;
     directEvidenceViaPullRequest: number;
     directEvidencePushedDirectly: number;
   };

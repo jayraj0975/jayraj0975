@@ -10,6 +10,27 @@ export interface CommitSignal {
   model: string | null;
   kind: 'trailer' | 'body_marker' | 'subject_prefix' | 'bot_author' | 'bot_committer' | 'name_suffix';
   value: string;
+  /**
+   * direct: written by the tool that made the change, or by a person, about this commit.
+   * editor_inserted: added by an editor from its own telemetry, with known false positives;
+   * corroborates tool presence, never establishes AI authorship of the change.
+   */
+  reliability: 'direct' | 'editor_inserted';
+  caveat?: string;
+}
+
+/**
+ * VS Code's git.addAICoAuthor setting appends this exact trailer. VS Code 1.117
+ * (rollout from 2026-04-22) made it the default and, through a bug, added it to
+ * commits with no AI involvement, even with AI features disabled; 1.119
+ * reverted the default. In its intended "all" mode a single next-edit
+ * suggestion is enough to trigger it. microsoft/vscode#313064, #314311.
+ */
+export const EDITOR_TRAILER_CAVEAT =
+  'Inserted by the VS Code editor (git.addAICoAuthor), not by an agent that made the change. VS Code 1.117 added it to commits with no AI involvement (microsoft/vscode#313064), and its "all" mode triggers on a single suggested word.';
+
+function isEditorCopilotTrailer(name: string, email: string): boolean {
+  return name.trim().toLowerCase() === 'copilot' && email.trim().toLowerCase() === 'copilot@github.com';
 }
 
 interface Identity {
@@ -112,23 +133,26 @@ export function commitSignals(c: {
       const name = m ? m[1]! : value;
       const email = m ? m[2]! : '';
       const id = matchAiIdentity(name, email);
-      if (id) out.push({ ...id, model: modelFrom(name), kind: 'trailer', value: `Co-authored-by: ${value}` });
+      if (id) {
+        const editor = isEditorCopilotTrailer(name, email);
+        out.push({ ...id, model: modelFrom(name), kind: 'trailer', value: `Co-authored-by: ${value}`, reliability: editor ? 'editor_inserted' : 'direct', ...(editor ? { caveat: EDITOR_TRAILER_CAVEAT } : {}) });
+      }
     } else if (ASSIST_TRAILERS.has(k)) {
       const id = toolFromText(value) ?? { tool: 'unspecified-ai', vendor: null };
-      out.push({ ...id, model: modelFrom(value), kind: 'trailer', value: `${key}: ${value}` });
+      out.push({ ...id, model: modelFrom(value), kind: 'trailer', value: `${key}: ${value}`, reliability: 'direct' });
     }
   }
   for (const [re, tool, vendor] of BODY_MARKERS) {
     const m = re.exec(c.body);
-    if (m && !out.some((s) => s.tool === tool)) out.push({ tool, vendor, model: null, kind: 'body_marker', value: m[0] });
+    if (m && !out.some((s) => s.tool === tool && s.reliability === 'direct')) out.push({ tool, vendor, model: null, kind: 'body_marker', value: m[0], reliability: 'direct' });
   }
-  if (/^aider: /i.test(c.subject)) out.push({ tool: 'aider', vendor: null, model: null, kind: 'subject_prefix', value: 'aider:' });
+  if (/^aider: /i.test(c.subject)) out.push({ tool: 'aider', vendor: null, model: null, kind: 'subject_prefix', value: 'aider:', reliability: 'direct' });
   const authorId = matchAiIdentity(c.author.name, c.author.email);
-  if (authorId) out.push({ ...authorId, model: null, kind: 'bot_author', value: `${c.author.name} <${c.author.email}>` });
+  if (authorId) out.push({ ...authorId, model: null, kind: 'bot_author', value: `${c.author.name} <${c.author.email}>`, reliability: 'direct' });
   const committerId = matchAiIdentity(c.committer.name, c.committer.email);
-  if (committerId && !authorId) out.push({ ...committerId, model: null, kind: 'bot_committer', value: `${c.committer.name} <${c.committer.email}>` });
+  if (committerId && !authorId) out.push({ ...committerId, model: null, kind: 'bot_committer', value: `${c.committer.name} <${c.committer.email}>`, reliability: 'direct' });
   if (/\(aider\)\s*$/i.test(c.author.name) || /\(aider\)\s*$/i.test(c.committer.name)) {
-    out.push({ tool: 'aider', vendor: null, model: null, kind: 'name_suffix', value: '(aider)' });
+    out.push({ tool: 'aider', vendor: null, model: null, kind: 'name_suffix', value: '(aider)', reliability: 'direct' });
   }
   return out;
 }

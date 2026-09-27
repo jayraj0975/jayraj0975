@@ -39,6 +39,7 @@ export const RULES = {
   'AI-008': { version: 1, area: 'ai_development', title: 'AI tool terms not declared', materiality: 'material', audience: ['counsel'], why: 'IP indemnities and output terms depend on the plan tier and settings used.' },
   'AI-009': { version: 1, area: 'evidence_quality', title: 'AI tools configured but attribution not recorded', materiality: 'material', audience: ['management', 'engineering'], why: 'Tool use is indicated but which code it produced was not recorded; origin stays unknown.' },
   'AI-011': { version: 1, area: 'ai_development', title: 'Files predominantly attributed to AI with no recorded human authorship', materiality: 'material', audience: ['counsel'], why: 'Copyright requires human authorship; counsel should know where records show little or none.' },
+  'AI-013': { version: 1, area: 'ai_development', title: 'Editor-inserted AI co-author trailers (corroborating only)', materiality: 'minor', audience: ['management', 'engineering'], why: 'An editor can add an AI co-author trailer from its own telemetry, including where no AI output was used; it cannot establish which code AI produced.' },
   'AI-012': { version: 1, area: 'provenance', title: 'Model weights or binary model artifacts committed', materiality: 'material', audience: ['counsel', 'engineering'], why: 'Model artifacts carry training-data and license provenance that the repository cannot show.' },
 
   // Licenses
