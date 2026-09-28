@@ -4,12 +4,13 @@
  *
  *   DATA_ENCRYPTION_KEYS="knew:...,kold:..." node dist-node/worker/reencrypt.mjs
  *
- * Covers GitLab credentials, notification endpoint URLs and secrets, dossier
- * bodies and pending uploads. Idempotent:
+ * Covers GitLab credentials, notification endpoint URLs and secrets, platform
+ * secrets (a GitHub App created through /setup), dossier bodies and pending uploads. Idempotent:
  * anything already under the current key is left untouched. Prints counts
  * only; never prints keys, credentials or content.
  */
 import { q, withOrg } from '../lib/db';
+import { resetGithubCreds } from '../lib/github-config';
 import { currentKeyId, decrypt, encrypt, sealedKeyId } from '../lib/crypto';
 import { blobs } from '../lib/storage';
 
@@ -23,6 +24,14 @@ export async function reencryptAll(): Promise<ReencryptReport> {
   const kid = currentKeyId();
   const report: ReencryptReport = { currentKey: kid, credentials: { checked: 0, reencrypted: 0 }, blobs: { checked: 0, reencrypted: 0, missing: 0 } };
   const store = blobs();
+  for (const p of await q<{ name: string; value_enc: string }>('SELECT name, value_enc FROM platform_secrets ORDER BY name')) {
+    report.credentials.checked++;
+    if (sealedKeyId(p.value_enc) === kid) continue;
+    const aad = `platform:${p.name}`;
+    await q('UPDATE platform_secrets SET value_enc = $2, updated_at = now() WHERE name = $1 AND value_enc = $3', [p.name, encrypt(decrypt(p.value_enc, aad), aad), p.value_enc]);
+    report.credentials.reencrypted++;
+  }
+  resetGithubCreds();
   const orgs = await q<{ id: string }>('SELECT id FROM orgs ORDER BY id');
   for (const org of orgs) {
     const { creds, endpoints, keys } = await withOrg(org.id, async (c) => ({

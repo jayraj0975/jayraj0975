@@ -3,7 +3,8 @@ import { fmtDate, Notice, Readiness, TopBar } from '@/components/ui';
 import { requirePageContext, hasRole } from '@/lib/session';
 import { isUuid, rows, withOrg } from '@/lib/db';
 import { openReveal } from '@/lib/crypto';
-import { site } from '@/lib/site';
+import { cliChecksum, site } from '@/lib/site';
+import { CopyButton } from '@/components/CopyButton';
 
 export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Dossier requests' };
@@ -47,14 +48,15 @@ export default async function Requests({ searchParams }: { searchParams: Promise
   const revealed = openReveal(sp.reveal, ctx.user.id);
   const token = created && revealed && /^acq_[A-Za-z0-9_-]+$/.test(revealed) ? revealed : null;
   const cli = `${s.url}/cli/acquicode.mjs`;
+  const sum = await cliChecksum();
   const instructions = token && created
-    ? `${ctx.org.name} has asked for an AcquiCode dossier${created.note ? `:\n\n${created.note}\n` : '.'}
+    ? `${ctx.org.name} has asked for an AcquiCode dossier${created.note ? `:\n\n${created.note}` : '.'}
 
 AcquiCode analyses your repository on your own machine or CI. Your source code is not sent to us or to ${ctx.org.name}; only the dossier (findings, file paths, hashes and metadata) is delivered. Needs Node.js 22+ and git.
 
 1. Download the CLI and check it:
    curl -fsSL ${cli} -o acquicode.mjs
-   curl -fsSL ${cli}.sha256    # compare with: shasum -a 256 acquicode.mjs
+   ${sum ? `echo "${sum}  acquicode.mjs" | shasum -a 256 -c -` : `curl -fsSL ${cli}.sha256    # compare with: shasum -a 256 acquicode.mjs`}
 
 2. Create a signing key (keep the private key; the public key is sent with the dossier):
    node acquicode.mjs keygen --out .acquicode-keys
@@ -86,8 +88,11 @@ Open acquicode-out/dossier.html first if you want to read what will be delivered
             <p className="small">
               The token below is shown <strong>once</strong> and stored only as a hash. Copy the whole message into an email to the target&apos;s CTO or deal lead.
             </p>
-            <label htmlFor="brief">Message for the target</label>
-            <textarea id="brief" readOnly defaultValue={instructions} style={{ minHeight: '22rem' }} />
+            <div className="row" style={{ justifyContent: 'space-between', alignItems: 'end', marginBottom: '0.35rem' }}>
+              <label htmlFor="brief" style={{ margin: 0 }}>Message for the target</label>
+              <CopyButton target="brief" label="Copy message" />
+            </div>
+            <textarea id="brief" readOnly defaultValue={instructions} rows={instructions.split('\n').length + 2} style={{ minHeight: 0 }} />
           </section>
         ) : createdId ? (
           <div className="notice warn">The token for this request can no longer be shown. If it was not sent, cancel the request and create a new one.</div>
@@ -142,8 +147,8 @@ Open acquicode-out/dossier.html first if you want to read what will be delivered
                           </>
                         ) : '—'}
                       </td>
-                      <td className="small">{fmtDate(r.created_at)}</td>
-                      <td className="small">{fmtDate(r.expires_at)}</td>
+                      <td className="small nowrap">{fmtDate(r.created_at)}</td>
+                      <td className="small nowrap">{fmtDate(r.expires_at)}</td>
                       <td>
                         {r.status !== 'cancelled' && canCreate ? (
                           <form action={`/api/requests/${r.id}/cancel`} method="post"><button className="btn small danger" type="submit">Cancel</button></form>

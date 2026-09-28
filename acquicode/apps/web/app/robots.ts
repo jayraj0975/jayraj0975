@@ -7,7 +7,7 @@ export default function robots(): MetadataRoute.Robots {
   const s = site();
   return {
     // Share links, the app and the API are private by nature and must never be indexed.
-    rules: [{ userAgent: '*', allow: ['/', '/sample', '/security', '/verify', '/legal/'], disallow: ['/app', '/api/', '/s/', '/login'] }],
+    rules: [{ userAgent: '*', allow: ['/', '/sample', '/security', '/verify', '/legal/'], disallow: ['/app', '/api/', '/s/', '/login', '/setup'] }],
     sitemap: `${s.url}/sitemap.xml`,
   };
 }

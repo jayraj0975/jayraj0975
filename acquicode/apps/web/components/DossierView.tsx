@@ -216,7 +216,7 @@ export function DossierView({ d, view, base, downloads, extra }: { d: Dossier; v
                 [
                   ['Direct, line-level', a.files.direct_line, 'Machine-readable attribution (git-ai notes, Agent Trace) ties current lines to an AI tool.'],
                   ['Direct, commit-level', a.files.direct_commit, 'Changed in commits whose metadata names an AI tool. Says a tool took part, not which lines.'],
-                  ['Corroborating only', a.files.corroborating, 'A self-declared comment in the file.'],
+                  ['Corroborating only', a.files.corroborating, 'A self-declared comment in the file, or an editor-inserted co-author trailer. Consistent with AI use; not attribution.'],
                   ['Inference only', a.files.inference, 'A heuristic signal. A reason to ask, not evidence.'],
                   ['No evidence either way', a.files.none, 'Unknown.'],
                 ] as const

@@ -7,6 +7,7 @@ import { isUuid, row, rows, withOrg } from '@/lib/db';
 import { loadDossier } from '@/lib/dossiers';
 import { config } from '@/lib/config';
 import { openReveal } from '@/lib/crypto';
+import { CopyButton } from '@/components/CopyButton';
 
 export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Dossier' };
@@ -48,7 +49,7 @@ export default async function ScanPage({ params, searchParams }: { params: Promi
         {shareToken ? (
           <div className="notice">
             Copy this link now; it is shown once and stored only as a hash:
-            <div><code>{new URL(`/s/${shareToken}`, config().APP_URL).toString()}</code></div>
+            <div className="row copy-field"><input id="share-link" type="text" readOnly defaultValue={new URL(`/s/${shareToken}`, config().APP_URL).toString()} aria-label="Share link" /><CopyButton target="share-link" /></div>
           </div>
         ) : null}
         {hasRole(ctx, 'admin') ? (

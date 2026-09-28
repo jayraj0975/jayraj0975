@@ -94,14 +94,16 @@ describe('webhook signatures', () => {
     expect(verifyStripeSignature(payload, null, 'stripe-secret', t)).toBe(false);
   });
 
-  it('verifies GitHub signatures and fails closed without a secret', () => {
+  it('verifies GitHub signatures and fails closed without a secret', async () => {
     const body = Buffer.from('{"zen":"x"}');
     const good = `sha256=${createHmac('sha256', 'whsec').update(body).digest('hex')}`;
-    expect(verifyGithubSignature(body, good)).toBe(true);
-    expect(verifyGithubSignature(body, good.replace(/.$/, '0'))).toBe(false);
-    expect(verifyGithubSignature(body, null)).toBe(false);
-    setEnv({ GITHUB_WEBHOOK_SECRET: undefined });
-    expect(verifyGithubSignature(body, good)).toBe(false);
+    expect(await verifyGithubSignature(body, good)).toBe(true);
+    expect(await verifyGithubSignature(body, good.replace(/.$/, '0'))).toBe(false);
+    expect(await verifyGithubSignature(body, null)).toBe(false);
+    // GitHub configured through the environment, but without a webhook secret.
+    setEnv({ GITHUB_WEBHOOK_SECRET: undefined, GITHUB_APP_ID: '1' });
+    expect(await verifyGithubSignature(body, good)).toBe(false);
+    setEnv({ GITHUB_APP_ID: undefined });
   });
 });
 

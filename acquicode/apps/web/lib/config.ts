@@ -46,13 +46,17 @@ const schema = z.object({
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
 
-  // Public contact details. When unset, addresses are derived from APP_URL's domain (support@, security@).
+  // Public contact details, shown in the footer, legal pages and security.txt. Never derived: unset means not shown.
   CONTACT_EMAIL: z.string().email().optional(),
   SECURITY_EMAIL: z.string().email().optional(),
   // Legal name of the company operating this deployment, used in the Terms and Privacy pages.
   LEGAL_ENTITY: z.string().max(200).optional(),
   // Infrastructure provider that hosts this deployment, listed as a subprocessor (e.g. "Amazon Web Services (eu-west-1)").
   HOSTING_PROVIDER: z.string().max(200).optional(),
+
+  // Enables /setup, where the operator creates the GitHub App from a manifest in one click. At least 24 characters;
+  // setup closes for good once an App is stored or GitHub variables are set.
+  SETUP_TOKEN: z.string().min(24).optional(),
 
   ACQUICODE_DEV_LOGIN: z.enum(['0', '1']).default('0'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
@@ -81,16 +85,6 @@ export function config(): Config {
   if (c.STORAGE_DRIVER === 's3' && !c.S3_BUCKET) throw new Error('S3_BUCKET is required when STORAGE_DRIVER=s3');
   cached = c;
   return c;
-}
-
-export function githubAppConfigured(): boolean {
-  const c = config();
-  return !!(c.GITHUB_APP_ID && c.GITHUB_APP_PRIVATE_KEY && c.GITHUB_APP_SLUG);
-}
-
-export function githubLoginConfigured(): boolean {
-  const c = config();
-  return !!(c.GITHUB_CLIENT_ID && c.GITHUB_CLIENT_SECRET);
 }
 
 export function devLoginEnabled(): boolean {

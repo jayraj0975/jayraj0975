@@ -21,5 +21,5 @@ export const GET = formHandler(async (req: Request) => {
   if (state.org !== ctx.org.id || !hasRole(ctx, 'admin')) return redirectTo('/app/connect?error=Only an admin of this organisation can connect GitHub.');
   if (!Number.isSafeInteger(installationId) || installationId <= 0) return redirectTo('/app/connect?error=GitHub did not return an installation id.');
   const verify = signState({ purpose: 'install-verify', org: ctx.org.id, user: ctx.user.id, installation: installationId }, 600);
-  return NextResponse.redirect(oauthAuthorizeUrl(verify), 303);
+  return NextResponse.redirect(await oauthAuthorizeUrl(verify), 303);
 });

@@ -2,6 +2,7 @@ import { createHash, createSign } from 'node:crypto';
 import { config } from './config';
 import { hmacSha256Hex, safeEqual } from './crypto';
 import { HttpError } from './errors';
+import { githubCreds, type GithubCreds } from './github-config';
 
 /**
  * GitHub App integration. Read-only permissions (contents, metadata, pull
@@ -13,20 +14,18 @@ function b64url(b: Buffer | string): string {
   return Buffer.from(b).toString('base64url');
 }
 
-export function appJwt(now = Math.floor(Date.now() / 1000)): string {
-  const c = config();
-  if (!c.GITHUB_APP_ID || !c.GITHUB_APP_PRIVATE_KEY) throw new HttpError(503, 'GitHub App is not configured on this deployment');
+export function appJwt(creds: Pick<GithubCreds, 'appId' | 'privateKey'>, now = Math.floor(Date.now() / 1000)): string {
+  if (!creds.appId || !creds.privateKey) throw new HttpError(503, 'GitHub App is not configured on this deployment');
   const header = b64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
-  const payload = b64url(JSON.stringify({ iat: now - 60, exp: now + 540, iss: c.GITHUB_APP_ID }));
+  const payload = b64url(JSON.stringify({ iat: now - 60, exp: now + 540, iss: creds.appId }));
   const signer = createSign('RSA-SHA256');
   signer.update(`${header}.${payload}`);
-  const key = c.GITHUB_APP_PRIVATE_KEY.includes('\\n') ? c.GITHUB_APP_PRIVATE_KEY.replace(/\\n/g, '\n') : c.GITHUB_APP_PRIVATE_KEY;
-  return `${header}.${payload}.${signer.sign(key).toString('base64url')}`;
+  return `${header}.${payload}.${signer.sign(creds.privateKey).toString('base64url')}`;
 }
 
 async function gh<T>(path: string, init: RequestInit & { token?: string; jwt?: boolean } = {}): Promise<T> {
   const c = config();
-  const auth = init.jwt ? `Bearer ${appJwt()}` : init.token ? `Bearer ${init.token}` : undefined;
+  const auth = init.jwt ? `Bearer ${appJwt(await githubCreds())}` : init.token ? `Bearer ${init.token}` : undefined;
   const res = await fetch(`${c.GITHUB_API_URL}${path}`, {
     ...init,
     headers: {
@@ -78,11 +77,12 @@ export async function listInstallationRepos(token: string): Promise<GhRepo[]> {
   return out;
 }
 
-export function oauthAuthorizeUrl(state: string): string {
+export async function oauthAuthorizeUrl(state: string): Promise<string> {
   const c = config();
-  if (!c.GITHUB_CLIENT_ID) throw new HttpError(503, 'GitHub sign-in is not configured on this deployment');
+  const gh = await githubCreds();
+  if (!gh.clientId) throw new HttpError(503, 'GitHub sign-in is not configured on this deployment');
   const u = new URL('/login/oauth/authorize', c.GITHUB_WEB_URL);
-  u.searchParams.set('client_id', c.GITHUB_CLIENT_ID);
+  u.searchParams.set('client_id', gh.clientId);
   u.searchParams.set('redirect_uri', new URL('/api/auth/github/callback', c.APP_URL).toString());
   u.searchParams.set('state', state);
   u.searchParams.set('allow_signup', 'true');
@@ -99,10 +99,12 @@ export interface GithubIdentity {
 /** Exchange an OAuth code for a user token. The token lives only for the current request. */
 async function exchangeCode(code: string): Promise<string> {
   const c = config();
+  const gh = await githubCreds();
+  if (!gh.clientId || !gh.clientSecret) throw new HttpError(503, 'GitHub sign-in is not configured on this deployment');
   const res = await fetch(new URL('/login/oauth/access_token', c.GITHUB_WEB_URL), {
     method: 'POST',
     headers: { accept: 'application/json', 'content-type': 'application/json', 'user-agent': 'acquicode' },
-    body: JSON.stringify({ client_id: c.GITHUB_CLIENT_ID, client_secret: c.GITHUB_CLIENT_SECRET, code, redirect_uri: new URL('/api/auth/github/callback', c.APP_URL).toString() }),
+    body: JSON.stringify({ client_id: gh.clientId, client_secret: gh.clientSecret, code, redirect_uri: new URL('/api/auth/github/callback', c.APP_URL).toString() }),
     signal: AbortSignal.timeout(20_000),
   });
   const tok = (await res.json()) as { access_token?: string; error?: string };
@@ -172,14 +174,22 @@ export async function resolveGithubLogin(login: string, dev = false): Promise<{ 
   return { id: u.id, login: u.login };
 }
 
-export function verifyGithubSignature(body: Buffer, signature: string | null): boolean {
-  const secret = config().GITHUB_WEBHOOK_SECRET;
-  if (!secret || !signature?.startsWith('sha256=')) return false;
+/** Fails closed: no configured secret, or credentials that cannot be read, reject every delivery. */
+export async function verifyGithubSignature(body: Buffer, signature: string | null): Promise<boolean> {
+  if (!signature?.startsWith('sha256=')) return false;
+  let secret: string | null;
+  try {
+    secret = (await githubCreds()).webhookSecret;
+  } catch {
+    return false;
+  }
+  if (!secret) return false;
   return safeEqual(signature, `sha256=${hmacSha256Hex(secret, body)}`);
 }
 
-export function installUrl(state: string): string {
+export async function installUrl(state: string): Promise<string> {
   const c = config();
-  if (!c.GITHUB_APP_SLUG) throw new HttpError(503, 'GitHub App is not configured on this deployment');
-  return `${c.GITHUB_WEB_URL}/apps/${encodeURIComponent(c.GITHUB_APP_SLUG)}/installations/new?state=${encodeURIComponent(state)}`;
+  const gh = await githubCreds();
+  if (!gh.slug) throw new HttpError(503, 'GitHub App is not configured on this deployment');
+  return `${c.GITHUB_WEB_URL}/apps/${encodeURIComponent(gh.slug)}/installations/new?state=${encodeURIComponent(state)}`;
 }

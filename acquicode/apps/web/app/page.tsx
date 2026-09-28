@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic';
 
 /** A real excerpt of the sample dossier, rendered from the engine's output rather than drawn. */
 function DossierPreview({ d }: { d: Dossier }) {
-  const top = d.findings.filter((f) => !f.suppressed && (f.materiality === 'blocking' || f.materiality === 'material')).slice(0, 3);
+  const top = d.findings.filter((f) => !f.suppressed && (f.materiality === 'blocking' || f.materiality === 'material')).slice(0, 2);
   const c = d.summary.counts;
   return (
     <figure className="preview" style={{ margin: 0 }} aria-label="Excerpt of the sample dossier">
@@ -24,12 +24,12 @@ function DossierPreview({ d }: { d: Dossier }) {
           <div><span className="n">{c.blocking}</span><span className="l">blocking</span></div>
           <div><span className="n">{c.material}</span><span className="l">material</span></div>
           <div><span className="n">{d.unknowns.filter((u) => u.material).length}</span><span className="l">unknowns</span></div>
-          <div><span className="n">{d.aiDevelopment.files.none}</span><span className="l">files: no AI evidence either way</span></div>
+          <div><span className="n">{d.aiDevelopment.files.none}</span><span className="l">files with no AI evidence either way</span></div>
         </div>
         {top.map((f) => (
           <div className="finding" key={f.id}>
             <header><Mat m={f.materiality} /><span className="rule">{f.rule}</span><strong>{f.title}</strong><State s={f.state} /></header>
-            <p className="muted">{f.summary.length > 150 ? `${f.summary.slice(0, 147)}…` : f.summary}</p>
+            <p className="muted">{f.summary.length > 120 ? `${f.summary.slice(0, 117).trimEnd()}…` : f.summary}</p>
           </div>
         ))}
         <p className="small" style={{ margin: '0.6rem 0 0' }}><Link href="/sample">Open the full sample dossier →</Link></p>
@@ -84,12 +84,12 @@ export default async function Landing() {
             </div>
             <div className="card">
               <h3>The evidence ladder</h3>
-              <div className="ladder">
-                <strong>Direct, line-level</strong><span className="n">✓</span><span className="desc small muted">Machine-readable records tie specific lines to a tool.</span>
-                <strong>Direct, commit-level</strong><span className="n">✓</span><span className="desc small muted">A commit written by, or naming, the agent that made it.</span>
-                <strong>Corroborating</strong><span className="n">~</span><span className="desc small muted">Self-declared comments, tool configuration, editor-inserted trailers.</span>
-                <strong>Inference</strong><span className="n">?</span><span className="desc small muted">A reason to ask. Never counted as evidence, never blocks a deal.</span>
-                <strong>No evidence</strong><span className="n">—</span><span className="desc small muted">Unknown. Not &ldquo;human&rdquo;.</span>
+              <div className="ladder sym">
+                <span className="n" aria-hidden="true">✓</span><strong>Direct, line-level</strong><span className="desc small muted">Machine-readable records tie specific lines to a tool.</span>
+                <span className="n" aria-hidden="true">✓</span><strong>Direct, commit-level</strong><span className="desc small muted">A commit written by, or naming, the agent that made it.</span>
+                <span className="n" aria-hidden="true">~</span><strong>Corroborating</strong><span className="desc small muted">Self-declared comments, tool configuration, editor-inserted trailers.</span>
+                <span className="n" aria-hidden="true">?</span><strong>Inference</strong><span className="desc small muted">A reason to ask. Never counted as evidence, never blocks a deal.</span>
+                <span className="n" aria-hidden="true">—</span><strong>No evidence</strong><span className="desc small muted">Unknown. Not &ldquo;human&rdquo;.</span>
               </div>
             </div>
           </div>
@@ -130,7 +130,7 @@ export default async function Landing() {
         </section>
 
         <section className="section" id="buyers">
-          <div className="wrap grid2">
+          <div className="wrap grid2 top">
             <div>
               <div className="kicker">For acquirers and investors</div>
               <h2 style={{ marginTop: '0.4rem' }}>Ask your target for a dossier, not their code</h2>
@@ -155,7 +155,7 @@ export default async function Landing() {
         </section>
 
         <section className="section">
-          <div className="wrap grid2">
+          <div className="wrap grid2 middle">
             <div>
               <h2>Deterministic, so it can be verified</h2>
               <p>
@@ -165,15 +165,16 @@ export default async function Landing() {
               <p className="muted small">{READINESS_SCOPE}</p>
             </div>
             {sample && digest ? (
-              <pre aria-label="Output from the sample repository">{`# Output for the Meridian demo repository
-$ acquicode scan . --sign-key acquicode-signing.key.pem
+              <pre className="terminal" aria-label="Output from the sample repository">{`# The Meridian demo repository
+$ node acquicode.mjs scan . --sign-key keys/acquicode-signing.key.pem
 ${sample.readiness.level}  ${sample.summary.headline}
-  AI evidence (files): ${sample.aiDevelopment.files.direct_line} line-level, ${sample.aiDevelopment.files.direct_commit} commit-level,
-                       ${sample.aiDevelopment.files.inference} inference-only, ${sample.aiDevelopment.files.none} no evidence
-  digest ${digest.slice(0, 40)}…
+  findings: ${sample.summary.counts.blocking} blocking, ${sample.summary.counts.material} material, ${sample.summary.counts.minor} minor · unknowns: ${sample.unknowns.filter((u) => u.material).length} material
+  AI evidence (files): ${sample.aiDevelopment.files.direct_line} line-level, ${sample.aiDevelopment.files.direct_commit} commit-level, ${sample.aiDevelopment.files.inference} inference-only, ${sample.aiDevelopment.files.none} no evidence
+  digest ${digest.slice(0, 20)}…
 
-$ acquicode verify dossier.json --reproduce ./meridian
-reproduced digest ${digest.slice(0, 12)}…: MATCHES`}</pre>
+$ node acquicode.mjs verify dossier.json --reproduce .
+dossier digest ${digest.slice(0, 20)}…
+reproduced digest ${digest.slice(0, 20)}…: MATCHES`}</pre>
             ) : null}
           </div>
         </section>
@@ -194,7 +195,7 @@ reproduced digest ${digest.slice(0, 12)}…: MATCHES`}</pre>
               ))}
             </div>
             <p className="small muted" style={{ marginTop: '1rem' }}>
-              {enterprise.name}: {enterprise.features.join('; ').toLowerCase()}.{' '}
+              <strong>{enterprise.name}</strong>: {enterprise.features.join(' · ')}.{' '}
               {s.supportEmail ? <>Write to <a href={`mailto:${s.supportEmail}`}>{s.supportEmail}</a>.</> : 'Contact the operator of this deployment.'}
             </p>
           </div>

@@ -21,7 +21,7 @@ interface Payload {
 export const POST = handler(async (req: Request) => {
   const body = Buffer.from(await req.arrayBuffer());
   if (body.length > 5 * 1024 * 1024) throw new HttpError(413, 'Payload too large');
-  if (!verifyGithubSignature(body, req.headers.get('x-hub-signature-256'))) throw new HttpError(401, 'Invalid signature');
+  if (!(await verifyGithubSignature(body, req.headers.get('x-hub-signature-256')))) throw new HttpError(401, 'Invalid signature');
   const delivery = req.headers.get('x-github-delivery') ?? '';
   const event = req.headers.get('x-github-event') ?? '';
   if (delivery) {

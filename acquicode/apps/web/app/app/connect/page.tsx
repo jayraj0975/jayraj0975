@@ -1,6 +1,7 @@
 import { Notice, TopBar } from '@/components/ui';
 import { requirePageContext, hasRole } from '@/lib/session';
-import { config, githubAppConfigured } from '@/lib/config';
+import { config } from '@/lib/config';
+import { appReady, githubCreds } from '@/lib/github-config';
 
 export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Add source' };
@@ -21,14 +22,14 @@ export default async function Connect({ searchParams }: { searchParams: Promise<
           <section className="card">
             <h2>GitHub</h2>
             <p className="small">Install the AcquiCode GitHub App on the repositories you choose. Permissions are read-only: contents, metadata and pull requests (for review evidence). Tokens are minted per scan and expire within an hour.</p>
-            {githubAppConfigured() ? (
+            {appReady(await githubCreds()) ? (
               admin ? (
                 <form action="/api/github/install" method="post"><button className="btn primary" type="submit">Connect GitHub repositories</button></form>
               ) : (
                 <p className="muted small">Ask an admin of {ctx.org.name} to connect GitHub.</p>
               )
             ) : (
-              <p className="notice warn small">The GitHub App is not configured on this deployment (GITHUB_APP_ID, GITHUB_APP_SLUG, GITHUB_APP_PRIVATE_KEY). Use the CLI, GitLab or a ZIP meanwhile.</p>
+              <p className="notice warn small">The GitHub App is not set up on this deployment yet (the operator can do it at /setup). Use the CLI, GitLab or a ZIP meanwhile.</p>
             )}
           </section>
 

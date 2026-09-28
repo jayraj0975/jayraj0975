@@ -1,6 +1,8 @@
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { Footer, Notice, TopBar } from '@/components/ui';
-import { devLoginEnabled, githubLoginConfigured } from '@/lib/config';
+import { devLoginEnabled } from '@/lib/config';
+import { githubCreds, loginReady } from '@/lib/github-config';
 import { currentUser } from '@/lib/session';
 
 export const dynamic = 'force-dynamic';
@@ -9,7 +11,7 @@ export const metadata = { title: 'Sign in' };
 export default async function Login({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   if (await currentUser()) redirect('/app');
   const params = await searchParams;
-  const github = githubLoginConfigured();
+  const github = loginReady(await githubCreds());
   const dev = devLoginEnabled();
   return (
     <>
@@ -22,7 +24,10 @@ export default async function Login({ searchParams }: { searchParams: Promise<Re
             <button className="btn primary" type="submit">Continue with GitHub</button>
           </form>
         ) : (
-          <div className="notice warn">GitHub sign-in is not configured on this deployment. An administrator must set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET (see DEPLOYMENT.md).</div>
+          <div className="notice warn">
+            Sign-in is not available yet: this deployment has not been connected to GitHub. If you operate it, <Link href="/setup">finish setup</Link>; it takes about a
+            minute.
+          </div>
         )}
         <p className="small muted" style={{ marginTop: '1.25rem' }}>
           Signing in reads your GitHub identity only. Repository access is granted separately, per repository, through the AcquiCode GitHub App, with read-only permissions.

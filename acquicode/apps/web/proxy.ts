@@ -9,6 +9,14 @@ export function proxy(request: NextRequest) {
   const nonce = Buffer.from(crypto.randomUUID()).toString('base64');
   const dev = process.env.NODE_ENV === 'development';
   const https = (process.env.APP_URL ?? '').startsWith('https://');
+  // GitHub Enterprise Server: the setup page posts the App manifest to that host instead of github.com.
+  let ghes = '';
+  try {
+    const origin = process.env.GITHUB_WEB_URL ? new URL(process.env.GITHUB_WEB_URL).origin : '';
+    if (origin.startsWith('https://') && origin !== 'https://github.com') ghes = ` ${origin}`;
+  } catch {
+    ghes = '';
+  }
   const csp = [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${dev ? " 'unsafe-eval'" : ''}`,
@@ -18,7 +26,7 @@ export function proxy(request: NextRequest) {
     "connect-src 'self'",
     "object-src 'none'",
     "base-uri 'self'",
-    "form-action 'self' https://github.com https://checkout.stripe.com",
+    `form-action 'self' https://github.com${ghes} https://checkout.stripe.com`,
     "frame-ancestors 'none'",
     ...(https ? ['upgrade-insecure-requests'] : []),
   ].join('; ');

@@ -57,7 +57,7 @@ beforeAll(async () => {
   await admin.query(`CREATE ROLE ${badRole} LOGIN PASSWORD 'pw' NOSUPERUSER BYPASSRLS`);
   await admin.query(`CREATE DATABASE ${dbName} OWNER ${ownerRole}`);
   await admin.end();
-  expect(await migrate(url(ownerRole), appRole, MIGRATIONS)).toEqual(['001_init.sql', '002_definer_access.sql', '003_invitations_by_id.sql', '004_dossier_requests.sql', '005_notifications.sql']);
+  expect(await migrate(url(ownerRole), appRole, MIGRATIONS)).toEqual(['001_init.sql', '002_definer_access.sql', '003_invitations_by_id.sql', '004_dossier_requests.sql', '005_notifications.sql', '006_platform_secrets.sql']);
   app = new pg.Client({ connectionString: url(appRole) });
   owner = new pg.Client({ connectionString: url(ownerRole) });
   await Promise.all([app.connect(), owner.connect()]);

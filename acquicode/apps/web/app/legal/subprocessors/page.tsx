@@ -8,7 +8,7 @@ export const metadata = { title: 'Subprocessors' };
 export default async function Subprocessors() {
   const user = await currentUser();
   const s = site();
-  const list = subprocessors();
+  const list = await subprocessors();
   return (
     <LegalPage title="Subprocessors" signedIn={!!user}>
       <p>

@@ -9,5 +9,5 @@ export const dynamic = 'force-dynamic';
 export const POST = formHandler(async (req: Request) => {
   assertSameOrigin(req);
   const ctx = await requireApiContext('admin');
-  return NextResponse.redirect(installUrl(signState({ purpose: 'install', org: ctx.org.id, user: ctx.user.id }, 1800)), 303);
+  return NextResponse.redirect(await installUrl(signState({ purpose: 'install', org: ctx.org.id, user: ctx.user.id }, 1800)), 303);
 });

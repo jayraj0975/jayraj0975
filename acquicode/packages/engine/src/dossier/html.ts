@@ -167,7 +167,7 @@ export function renderDossierHtml(d: Dossier, opts: RenderOptions = {}): string 
   const ladder: Array<[string, number, string, string]> = [
     ['Direct, line-level', a.files.direct_line, 'Machine-readable attribution (git-ai notes, Agent Trace) ties specific current lines to an AI tool.', 'direct'],
     ['Direct, commit-level', a.files.direct_commit, 'The file was changed in commits whose metadata names an AI tool (trailer, agent author). Says a tool took part, not which lines it wrote.', 'direct'],
-    ['Corroborating only', a.files.corroborating, 'A comment in the file says it was AI-generated. Self-declared; no link to specific commits.', 'corroborating'],
+    ['Corroborating only', a.files.corroborating, 'A comment in the file says it was AI-generated, or its commits carry only an editor-inserted co-author trailer. Consistent with AI use; not attribution.', 'corroborating'],
     ['Inference only', a.files.inference, 'Heuristic signal (e.g. a large unattributed change after AI tools were adopted). Not evidence; a reason to ask.', 'inference'],
     ['No evidence either way', a.files.none, 'Nothing in the repository speaks to how this code was produced. Unknown, not human.', 'none'],
   ];

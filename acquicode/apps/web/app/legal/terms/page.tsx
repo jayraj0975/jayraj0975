@@ -9,11 +9,11 @@ export const metadata = { title: 'Terms of service' };
 export default async function Terms() {
   const user = await currentUser();
   const s = site();
-  const we = s.operatorNamed ? s.operator : 'We, the operator of this AcquiCode deployment,';
+  const provider = s.operatorNamed ? s.operator : 'the operator of this AcquiCode deployment';
   return (
     <LegalPage title="Terms of service" signedIn={!!user}>
       <p>
-        These terms govern your use of AcquiCode at <code>{s.host}</code>. {we} provide the service. If your organisation has signed an order form or
+        These terms govern your use of AcquiCode at <code>{s.host}</code>. The service is provided by {provider} (&ldquo;we&rdquo;). If your organisation has signed an order form or
         agreement with us, that document takes precedence where it differs from these terms.
       </p>
 

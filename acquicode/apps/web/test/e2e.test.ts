@@ -159,6 +159,11 @@ function startFakeGithub(): Promise<void> {
         const code = (JSON.parse(body || '{}') as { code?: string }).code ?? '';
         return ACCOUNTS[code] ? json(200, { access_token: `user-${code}` }) : json(200, { error: 'bad_verification_code' });
       }
+      const manifest = /^\/app-manifests\/([^/]+)\/conversions$/.exec(p);
+      if (req.method === 'POST' && manifest) {
+        if (manifest[1] !== 'manifest-ok') return json(404, { message: 'Not Found' });
+        return json(201, { id: 9191, slug: 'acquicode-setup', name: 'AcquiCode setup', owner: { login: 'operator' }, client_id: 'Iv1.setup', client_secret: 'setup-client-secret', webhook_secret: 'setup-webhook-secret', pem: appKey, html_url: `${GH}/apps/acquicode-setup` });
+      }
       if (p === '/user' && who) return json(200, { id: who.id, login: who.login, name: who.login, email: `${who.login}@example.com` });
       if (p === '/user/emails' && who) return json(200, []);
       if (p === '/user/installations' && who) return json(200, { total_count: who.installations.length, installations: who.installations.map((id) => ({ id })) });
@@ -564,5 +569,92 @@ describe.skipIf(!ready)('AcquiCode end to end', () => {
     expect(res.headers.get('location')).toMatch(/notice=Deleted/);
     expect((await owner.query('SELECT 1 FROM scans WHERE id = $1', [scanId])).rowCount).toBe(0);
     expect(existsSync(join(tmp, 'blobs', 'orgs', alice.orgId, 'dossiers', `${scanId}.json`))).toBe(false);
+  });
+});
+
+describe.skipIf(!ready)('Operator setup on a fresh deployment', () => {
+  // A second server on the same database with no GitHub variables at all: the state of a new deployment.
+  const PORT2 = PORT + 2;
+  const BASE2 = `http://127.0.0.1:${PORT2}`;
+  const SETUP_TOKEN = randomBytes(24).toString('base64url');
+  const bare: NodeJS.ProcessEnv = { ...env, APP_URL: BASE2, PORT: String(PORT2), SETUP_TOKEN };
+  for (const k of ['GITHUB_APP_ID', 'GITHUB_APP_SLUG', 'GITHUB_APP_PRIVATE_KEY', 'GITHUB_CLIENT_ID', 'GITHUB_CLIENT_SECRET', 'GITHUB_WEBHOOK_SECRET']) delete bare[k];
+  let setupCookie = '';
+
+  const call = (path: string, init: RequestInit & { cookie?: string; origin?: string | null } = {}) => {
+    const headers = new Headers(init.headers);
+    if (init.cookie) headers.set('cookie', init.cookie);
+    if (init.origin !== null && init.method && init.method !== 'GET') headers.set('origin', init.origin ?? BASE2);
+    return fetch(`${BASE2}${path}`, { ...init, headers, redirect: 'manual' });
+  };
+
+  beforeAll(async () => {
+    const web2 = spawn(process.execPath, [SERVER], { cwd: join(WEB, '.next/standalone/apps/web'), env: bare, stdio: ['ignore', 'pipe', 'pipe'] });
+    procs.push(web2);
+    web2.stdout!.on('data', (c: Buffer) => (logs.web += c.toString()));
+    web2.stderr!.on('data', (c: Buffer) => (logs.web += c.toString()));
+    await waitFor(async () => (await fetch(`${BASE2}/api/health`).catch(() => null))?.ok ?? null, 60_000, 'second web server');
+  }, 90_000);
+
+  it('explains that sign-in needs setup, and keeps setup locked without the token', async () => {
+    expect(await (await call('/login')).text()).toMatch(/has not been connected to GitHub/);
+    const page = await (await call('/setup')).text();
+    expect(page).toMatch(/Unlock setup/);
+    expect(page).not.toMatch(/settings\/apps\/new/);
+    expect((await call('/api/setup/unlock', { method: 'POST', origin: 'https://evil.example', body: new URLSearchParams({ token: SETUP_TOKEN }) })).headers.get('set-cookie') ?? '').not.toMatch(/acq_setup=/);
+    const wrong = await call('/api/setup/unlock', { method: 'POST', body: new URLSearchParams({ token: 'x'.repeat(32) }) });
+    expect(wrong.headers.get('location')).toMatch(/not%20correct|not correct/);
+    expect(wrong.headers.get('set-cookie') ?? '').not.toMatch(/acq_setup=/);
+    // A callback without the unlocked browser is refused, even with a code GitHub would accept.
+    const locked = await call('/api/setup/github/callback?code=manifest-ok&state=x');
+    expect(decodeURIComponent(locked.headers.get('location') ?? '')).toMatch(/Setup is locked/);
+  });
+
+  it('creates the GitHub App from a manifest and stores it encrypted, once', async () => {
+    const ok = await call('/api/setup/unlock', { method: 'POST', body: new URLSearchParams({ token: SETUP_TOKEN }) });
+    setupCookie = /acq_setup=[^;]+/.exec(ok.headers.get('set-cookie') ?? '')?.[0] ?? '';
+    expect(setupCookie).toBeTruthy();
+    const page = await (await call('/setup', { cookie: setupCookie })).text();
+    const action = /<form action="([^"]*\/settings\/apps\/new[^"]*)"/.exec(page)?.[1]?.replace(/&amp;/g, '&');
+    expect(action).toMatch(new RegExp(`^${GH}/settings/apps/new\\?state=`));
+    const manifest = JSON.parse(/name="manifest" value="([^"]+)"/.exec(page)![1]!.replace(/&quot;/g, '"').replace(/&amp;/g, '&')) as Record<string, any>;
+    expect(manifest.redirect_url).toBe(`${BASE2}/api/setup/github/callback`);
+    expect(manifest.callback_urls).toEqual([`${BASE2}/api/auth/github/callback`]);
+    expect(manifest.default_permissions).toEqual({ contents: 'read', metadata: 'read', pull_requests: 'read' });
+    const state = new URL(action!).searchParams.get('state')!;
+
+    const forged = await call(`/api/setup/github/callback?code=manifest-ok&state=${encodeURIComponent(state.replace(/.$/, 'A'))}`, { cookie: setupCookie });
+    expect(decodeURIComponent(forged.headers.get('location') ?? '')).toMatch(/expired/);
+    const bad = await call(`/api/setup/github/callback?code=not-a-real-code&state=${encodeURIComponent(state)}`, { cookie: setupCookie });
+    expect(decodeURIComponent(bad.headers.get('location') ?? '')).toMatch(/refused the code/);
+
+    const done = await call(`/api/setup/github/callback?code=manifest-ok&state=${encodeURIComponent(state)}`, { cookie: setupCookie });
+    expect(decodeURIComponent(done.headers.get('location') ?? '')).toMatch(/GitHub App created/);
+    const row = await owner.query<{ value_enc: string }>("SELECT value_enc FROM platform_secrets WHERE name = 'github_app'");
+    expect(row.rows[0]!.value_enc).toMatch(/^v1\./);
+    expect(row.rows[0]!.value_enc).not.toMatch(/setup-client-secret|PRIVATE KEY/);
+
+    const again = await call(`/api/setup/github/callback?code=manifest-ok&state=${encodeURIComponent(state)}`, { cookie: setupCookie });
+    expect(decodeURIComponent(again.headers.get('location') ?? '')).toMatch(/already connected/);
+    const closed = await (await call('/setup')).text();
+    expect(closed).toMatch(/GitHub is connected/);
+    expect(closed).toMatch(/acquicode-setup/);
+    expect(closed).not.toMatch(/settings\/apps\/new/);
+  });
+
+  it('signs in and verifies webhooks with the credentials created through setup', async () => {
+    expect(await (await call('/login')).text()).toMatch(/Continue with GitHub/);
+    const start = await call('/api/auth/github/start', { method: 'POST' });
+    const authorize = new URL(start.headers.get('location')!);
+    expect(authorize.origin).toBe(GH);
+    expect(authorize.searchParams.get('client_id')).toBe('Iv1.setup');
+    const body = JSON.stringify({ zen: 'Keep it logically awesome.' });
+    const sig = (secret: string) => `sha256=${createHmac('sha256', secret).update(body).digest('hex')}`;
+    const hook = (secret: string) => call('/api/github/webhook', { method: 'POST', origin: null, body, headers: { 'content-type': 'application/json', 'x-github-event': 'ping', 'x-hub-signature-256': sig(secret) } });
+    expect((await hook('setup-webhook-secret')).status).toBe(200);
+    expect((await hook('gh-webhook-secret')).status).toBe(401);
+    // Environment variables keep precedence: the first server still uses its own App.
+    const envStart = await http('/api/auth/github/start', { method: 'POST' });
+    expect(new URL(envStart.headers.get('location')!).searchParams.get('client_id')).toBe('Iv1.test');
   });
 });

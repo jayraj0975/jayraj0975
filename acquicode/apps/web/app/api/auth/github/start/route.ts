@@ -11,7 +11,7 @@ export const POST = formHandler(async (req: Request) => {
   assertSameOrigin(req);
   await rateLimitIp('login', clientIp(req), 30, 600);
   const nonce = crypto.randomUUID();
-  const res = NextResponse.redirect(oauthAuthorizeUrl(signState({ purpose: 'login', nonce })), 303);
+  const res = NextResponse.redirect(await oauthAuthorizeUrl(signState({ purpose: 'login', nonce })), 303);
   // Binds the OAuth round trip to this browser (login CSRF protection).
   res.cookies.set('acq_oauth', nonce, { httpOnly: true, secure: config().APP_URL.startsWith('https://'), sameSite: 'lax', path: '/api/auth/github', maxAge: 600 });
   return res;

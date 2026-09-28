@@ -6,6 +6,7 @@ import { stripeConfigured } from '@/lib/config';
 import { effectivePlan } from '@/lib/entitlements';
 import { openReveal } from '@/lib/crypto';
 import { EVENT_LABELS, NOTIFY_EVENTS } from '@/lib/notify';
+import { CopyButton } from '@/components/CopyButton';
 
 export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Settings' };
@@ -114,7 +115,12 @@ export default async function Settings({ searchParams }: { searchParams: Promise
         <section className="card" id="tokens" style={{ marginTop: '1.25rem' }}>
           <h2 style={{ marginTop: 0 }}>API tokens</h2>
           <p className="small">For <code>acquicode push</code> from CI or a laptop. Tokens can upload dossiers; they cannot read anything.</p>
-          {newToken ? <div className="notice">New token (shown once, stored only as a hash): <code>{newToken}</code></div> : null}
+          {newToken ? (
+            <div className="notice">
+              New token (shown once, stored only as a hash):
+              <div className="row copy-field"><input id="new-token" type="text" readOnly defaultValue={newToken} aria-label="New API token" /><CopyButton target="new-token" /></div>
+            </div>
+          ) : null}
           {data.tokens.length ? (
             <div className="table-wrap">
               <table className="table">
@@ -147,7 +153,8 @@ export default async function Settings({ searchParams }: { searchParams: Promise
           </p>
           {newSecret ? (
             <div className="notice">
-              Signing secret for the new endpoint (shown once): <code>{newSecret}</code>
+              Signing secret for the new endpoint (shown once):
+              <div className="row copy-field"><input id="new-secret" type="text" readOnly defaultValue={newSecret} aria-label="Webhook signing secret" /><CopyButton target="new-secret" /></div>
               <div className="small muted">Each request carries <code>X-AcquiCode-Signature: t=&lt;unix&gt;,v1=&lt;HMAC-SHA256 of &quot;t.body&quot;&gt;</code>. Reject deliveries older than five minutes.</div>
             </div>
           ) : null}
