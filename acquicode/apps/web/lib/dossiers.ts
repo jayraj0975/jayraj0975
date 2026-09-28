@@ -5,6 +5,7 @@ import { log, sanitizeError } from './log';
 import { platformKey } from './signing';
 import { blobs, dossierKey } from './storage';
 import { audit } from './audit';
+import { appLink, emit } from './notify';
 
 /**
  * Store a dossier, sign it when a platform key is configured, record what
@@ -40,10 +41,13 @@ export async function storeDossier(orgId: string, repositoryId: string, scanId: 
       [repositoryId, scanId],
     );
     await tx.query('INSERT INTO dossiers (scan_id, org_id, storage_key, envelope, digest, size_bytes) VALUES ($1, $2, $3, $4, $5, $6)', [scanId, orgId, dossierKey(orgId, scanId), envelope ? JSON.stringify(envelope) : null, digest, body.length]);
+    let change: { material: number; readinessFrom: string | null; highlights: string[] } | null = null;
     if (prev) {
       try {
         const prevDossier = JSON.parse((await blobs().get(dossierKey(orgId, prev.id))).toString('utf8')) as Dossier;
         const diff = diffDossiers(prevDossier, dossier);
+        const material = diff.events.filter((e) => e.severity === 'material');
+        change = { material: material.length, readinessFrom: prevDossier.readiness.level, highlights: material.slice(0, 3).map((e) => e.summary.slice(0, 200)) };
         for (const e of diff.events.slice(0, 200)) {
           await tx.query('INSERT INTO change_events (org_id, repository_id, scan_id, previous_scan_id, kind, severity, summary) VALUES ($1, $2, $3, $4, $5, $6, $7)', [orgId, repositoryId, scanId, prev.id, e.kind, e.severity, e.summary.slice(0, 1000)]);
         }
@@ -58,6 +62,23 @@ export async function storeDossier(orgId: string, repositoryId: string, scanId: 
       [scanId, dossier.readiness.level, JSON.stringify(counts), digest, dossier.subjects[0]?.headCommit ?? null, envelope ? level : null, keyid],
     );
     await audit(tx, orgId, { type: 'system', id: 'worker' }, 'scan.succeeded', { type: 'scan', id: scanId }, { readiness: dossier.readiness.level, digest });
+    const repo = await row<{ full_name: string }>(tx, 'SELECT full_name FROM repositories WHERE id = $1', [repositoryId]);
+    const org = await row<{ name: string }>(tx, 'SELECT name FROM orgs WHERE id = $1', [orgId]);
+    const base = {
+      organisation: { id: orgId, name: org?.name ?? '' },
+      repository: { id: repositoryId, name: repo?.full_name ?? '' },
+      scan: { id: scanId, readiness: dossier.readiness.level },
+      url: appLink(`/app/scans/${scanId}`),
+    };
+    await emit(tx, orgId, 'scan.completed', { ...base, message: `${base.repository.name}: ${dossier.readiness.level}. ${dossier.summary.headline}` });
+    if (change && (change.material > 0 || change.readinessFrom !== dossier.readiness.level)) {
+      const moved = change.readinessFrom !== dossier.readiness.level ? ` Readiness ${change.readinessFrom} → ${dossier.readiness.level}.` : '';
+      await emit(tx, orgId, 'dossier.changed', {
+        ...base,
+        message: `${base.repository.name}: ${change.material} material change${change.material === 1 ? '' : 's'} since the previous snapshot.${moved}`,
+        changes: { material: change.material, readinessFrom: change.readinessFrom, readinessTo: dossier.readiness.level, highlights: change.highlights },
+      });
+    }
   });
 }
 

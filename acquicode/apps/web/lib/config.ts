@@ -39,9 +39,20 @@ const schema = z.object({
   GITHUB_WEB_URL: z.string().url().default('https://github.com'),
 
   PLATFORM_SIGNING_KEY: z.string().optional(),
+  // Public keys (PEM, one after another) that signed platform dossiers in the past. Published with the
+  // current key so dossiers signed before a rotation stay verifiable.
+  PLATFORM_RETIRED_PUBLIC_KEYS: z.string().optional(),
 
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
+
+  // Public contact details. When unset, addresses are derived from APP_URL's domain (support@, security@).
+  CONTACT_EMAIL: z.string().email().optional(),
+  SECURITY_EMAIL: z.string().email().optional(),
+  // Legal name of the company operating this deployment, used in the Terms and Privacy pages.
+  LEGAL_ENTITY: z.string().max(200).optional(),
+  // Infrastructure provider that hosts this deployment, listed as a subprocessor (e.g. "Amazon Web Services (eu-west-1)").
+  HOSTING_PROVIDER: z.string().max(200).optional(),
 
   ACQUICODE_DEV_LOGIN: z.enum(['0', '1']).default('0'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),

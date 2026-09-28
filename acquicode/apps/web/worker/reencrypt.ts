@@ -4,7 +4,8 @@
  *
  *   DATA_ENCRYPTION_KEYS="knew:...,kold:..." node dist-node/worker/reencrypt.mjs
  *
- * Covers GitLab credentials, dossier bodies and pending uploads. Idempotent:
+ * Covers GitLab credentials, notification endpoint URLs and secrets, dossier
+ * bodies and pending uploads. Idempotent:
  * anything already under the current key is left untouched. Prints counts
  * only; never prints keys, credentials or content.
  */
@@ -24,8 +25,9 @@ export async function reencryptAll(): Promise<ReencryptReport> {
   const store = blobs();
   const orgs = await q<{ id: string }>('SELECT id FROM orgs ORDER BY id');
   for (const org of orgs) {
-    const { creds, keys } = await withOrg(org.id, async (c) => ({
+    const { creds, endpoints, keys } = await withOrg(org.id, async (c) => ({
       creds: (await c.query<{ id: string; credential_enc: string }>('SELECT id, credential_enc FROM repositories WHERE credential_enc IS NOT NULL')).rows,
+      endpoints: (await c.query<{ id: string; url_enc: string; secret_enc: string }>('SELECT id, url_enc, secret_enc FROM notification_endpoints')).rows,
       keys: [
         ...(await c.query<{ k: string }>('SELECT storage_key AS k FROM dossiers')).rows.map((r) => r.k),
         ...(await c.query<{ k: string }>("SELECT upload_key AS k FROM scans WHERE upload_key IS NOT NULL AND status IN ('queued', 'running')")).rows.map((r) => r.k),
@@ -38,6 +40,14 @@ export async function reencryptAll(): Promise<ReencryptReport> {
       const resealed = encrypt(decrypt(r.credential_enc, aad), aad);
       await withOrg(org.id, (c) => c.query('UPDATE repositories SET credential_enc = $2 WHERE id = $1 AND credential_enc = $3', [r.id, resealed, r.credential_enc]));
       report.credentials.reencrypted++;
+    }
+    for (const e of endpoints) {
+      report.credentials.checked += 2;
+      if (sealedKeyId(e.url_enc) === kid && sealedKeyId(e.secret_enc) === kid) continue;
+      const url = encrypt(decrypt(e.url_enc, `notify-url:${e.id}`), `notify-url:${e.id}`);
+      const secret = encrypt(decrypt(e.secret_enc, `notify:${e.id}`), `notify:${e.id}`);
+      await withOrg(org.id, (c) => c.query('UPDATE notification_endpoints SET url_enc = $2, secret_enc = $3 WHERE id = $1', [e.id, url, secret]));
+      report.credentials.reencrypted += 2;
     }
     for (const key of keys) {
       report.blobs.checked++;

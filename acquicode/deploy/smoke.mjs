@@ -36,6 +36,16 @@ await check('security headers', async () => {
   assert(r.headers.get('x-content-type-options') === 'nosniff', 'nosniff missing');
   if (base.startsWith('https://')) assert((r.headers.get('strict-transport-security') ?? '').includes('max-age'), 'HSTS missing');
 });
+await check('stylesheets and scripts are served', async () => {
+  const html = await (await get('/')).text();
+  const assets = [...html.matchAll(/(?:href|src)="(\/_next\/static\/[^"]+\.(css|js))"/g)].map((m) => [m[1], m[2]]);
+  assert(assets.some(([, kind]) => kind === 'css'), 'no stylesheet linked from the landing page');
+  for (const [path, kind] of assets.slice(0, 6)) {
+    const r = await get(path);
+    const type = r.headers.get('content-type') ?? '';
+    assert(r.ok && type.includes(kind === 'css' ? 'text/css' : 'javascript'), `${path}: ${r.status} ${type}`);
+  }
+});
 await check('analysis engine and git in the image (sample dossier)', async () => {
   const r = await get('/api/sample/download/json');
   assert(r.ok, `status ${r.status}`);

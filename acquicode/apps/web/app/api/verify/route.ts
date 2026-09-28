@@ -1,7 +1,8 @@
 import { dossierDigest, verifyEnvelope, type Dossier, type DsseEnvelope } from '@acquicode/engine';
 import { clientIp, handler, redirectTo } from '@/lib/http';
 import { rateLimitIp } from '@/lib/ratelimit';
-import { platformKey } from '@/lib/signing';
+import { platformPublicKeys } from '@/lib/signing';
+import { signState } from '@/lib/crypto';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,7 +37,9 @@ export const POST = handler(async (req: Request) => {
     signatureValid: null as boolean | null,
     dossierMatches: null as boolean | null,
     keyid: null as string | null,
+    signer: null as 'platform' | 'platform-retired' | 'supplied' | null,
     level: null as string | null,
+    claimedLevel: null as string | null,
     producer: null as string | null,
     producedAt: null as string | null,
     readiness: dossier.readiness?.level ?? 'unknown',
@@ -44,18 +47,28 @@ export const POST = handler(async (req: Request) => {
     problems: [] as string[],
   };
   if (envelope) {
-    const keys = keyText ? [keyText] : platformKey() ? [platformKey()!.publicKeyPem] : [];
+    const platform = platformPublicKeys();
+    const keys = [...platform.map((k) => k.publicKeyPem), ...(keyText ? [keyText] : [])];
     if (!keys.length) return fail('No public key: paste the signer’s key.');
     const r = verifyEnvelope(envelope, keys, dossier);
     result.signatureValid = r.signatureValid;
     result.dossierMatches = r.dossierMatches;
     result.keyid = r.keyid;
     result.problems = r.problems.slice(0, 10);
+    const pk = platform.find((k) => k.keyid === r.keyid);
+    result.signer = !r.signatureValid ? null : pk ? (pk.status === 'current' ? 'platform' : 'platform-retired') : 'supplied';
     if (r.statement) {
-      result.level = r.statement.predicate?.attestation?.level ?? null;
+      const claimed = r.statement.predicate?.attestation?.level ?? null;
+      result.claimedLevel = claimed;
+      // The level is the signer's own statement. Only this platform's keys can make it PLATFORM_ATTESTED.
+      result.level = claimed === 'PLATFORM_ATTESTED' && !pk ? 'SELF_ATTESTED' : claimed;
+      if (claimed === 'PLATFORM_ATTESTED' && !pk && r.signatureValid) {
+        result.problems.push('the manifest claims PLATFORM_ATTESTED but was not signed by this platform\'s key; treat it as self-attested');
+      }
       result.producer = r.statement.predicate?.attestation?.producer ?? null;
       result.producedAt = r.statement.predicate?.attestation?.producedAt ?? null;
     }
   }
-  return redirectTo(`/verify?r=${Buffer.from(JSON.stringify(result)).toString('base64url')}`);
+  // Signed, so a crafted link cannot display a verification that never happened.
+  return redirectTo(`/verify?r=${encodeURIComponent(signState({ result: JSON.stringify(result) }, 3600))}`);
 });

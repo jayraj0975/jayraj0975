@@ -223,6 +223,9 @@ async function verify(argv: string[]): Promise<void> {
     const r = verifyEnvelope(env, keys, dossier);
     process.stdout.write(`signature: ${r.signatureValid ? `valid (${r.keyid})` : 'INVALID'}\ndossier matches signed digest: ${r.dossierMatches ? 'yes' : 'NO'}\n`);
     if (r.statement) process.stdout.write(`attestation: ${r.statement.predicate.attestation.level} by ${r.statement.predicate.attestation.producer} at ${r.statement.predicate.attestation.producedAt}\n`);
+    if (r.statement?.predicate.attestation.level === 'PLATFORM_ATTESTED' && r.signatureValid) {
+      process.stdout.write('  note: the attestation level is the signer\'s own statement; it means platform-attested only if the key above is that platform\'s published key (/.well-known/acquicode-keys.json)\n');
+    }
     for (const p of r.problems) process.stdout.write(`  problem: ${p}\n`);
     ok &&= r.signatureValid && r.dossierMatches === true;
   }

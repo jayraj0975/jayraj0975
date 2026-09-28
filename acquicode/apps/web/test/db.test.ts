@@ -16,6 +16,7 @@ const dbName = `acquicode_rls_${suffix}`;
 const ownerRole = `acq_owner_${suffix}`;
 const appRole = `acq_app_${suffix}`;
 const badRole = `acq_bad_${suffix}`;
+const madeRole = `acq_made_${suffix}`;
 const url = (role: string) => ADMIN_URL.replace(/\/\/[^@]+@/, `//${role}:pw@`).replace(/\/[^/]*$/, `/${dbName}`);
 const MIGRATIONS = join(resolve(__dirname, '..'), 'db/migrations');
 
@@ -56,7 +57,7 @@ beforeAll(async () => {
   await admin.query(`CREATE ROLE ${badRole} LOGIN PASSWORD 'pw' NOSUPERUSER BYPASSRLS`);
   await admin.query(`CREATE DATABASE ${dbName} OWNER ${ownerRole}`);
   await admin.end();
-  expect(await migrate(url(ownerRole), appRole, MIGRATIONS)).toEqual(['001_init.sql', '002_definer_access.sql', '003_invitations_by_id.sql']);
+  expect(await migrate(url(ownerRole), appRole, MIGRATIONS)).toEqual(['001_init.sql', '002_definer_access.sql', '003_invitations_by_id.sql', '004_dossier_requests.sql', '005_notifications.sql']);
   app = new pg.Client({ connectionString: url(appRole) });
   owner = new pg.Client({ connectionString: url(ownerRole) });
   await Promise.all([app.connect(), owner.connect()]);
@@ -88,13 +89,24 @@ afterAll(async () => {
   const admin = new pg.Client({ connectionString: ADMIN_URL });
   await admin.connect();
   await admin.query(`DROP DATABASE IF EXISTS ${dbName} WITH (FORCE)`);
-  for (const r of [ownerRole, appRole, badRole]) await admin.query(`DROP ROLE IF EXISTS ${r}`);
+  for (const r of [ownerRole, appRole, badRole, madeRole]) await admin.query(`DROP ROLE IF EXISTS ${r}`);
   await admin.end();
 });
 
 describe.skipIf(!available)('tenant isolation in PostgreSQL', () => {
   it('migrations are idempotent', async () => {
     expect(await migrate(url(ownerRole), appRole, MIGRATIONS)).toEqual([]);
+  });
+
+  it('creates the application role itself when given a password (single-account platforms)', async () => {
+    const created = madeRole;
+    await migrate(url(ownerRole).replace(`//${ownerRole}:pw@`, '//postgres:postgres@'), created, MIGRATIONS, { appPassword: 'made-pw' });
+    const r = await owner.query('SELECT rolsuper, rolbypassrls, rolcreaterole, rolcreatedb, rolcanlogin FROM pg_roles WHERE rolname = $1', [created]);
+    expect(r.rows[0]).toEqual({ rolsuper: false, rolbypassrls: false, rolcreaterole: false, rolcreatedb: false, rolcanlogin: true });
+    const c = new pg.Client({ connectionString: url(created).replace(`//${created}:pw@`, `//${created}:made-pw@`) });
+    await c.connect();
+    expect((await c.query('SELECT count(*)::int AS n FROM repositories')).rows[0].n).toBe(0);
+    await c.end();
   });
 
   it('refuses an application role that could bypass row-level security', async () => {

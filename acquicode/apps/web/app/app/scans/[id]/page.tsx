@@ -6,6 +6,7 @@ import { hasRole, requirePageContext } from '@/lib/session';
 import { isUuid, row, rows, withOrg } from '@/lib/db';
 import { loadDossier } from '@/lib/dossiers';
 import { config } from '@/lib/config';
+import { openReveal } from '@/lib/crypto';
 
 export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Dossier' };
@@ -28,7 +29,8 @@ export default async function ScanPage({ params, searchParams }: { params: Promi
   if (!data) notFound();
   const { scan, links } = data;
   const loaded = scan.status === 'succeeded' ? await loadDossier(ctx.org.id, id) : null;
-  const shareToken = typeof sp.share === 'string' && /^shr_[A-Za-z0-9_-]+$/.test(sp.share) ? sp.share : null;
+  const revealed = openReveal(sp.reveal, ctx.user.id);
+  const shareToken = revealed && /^shr_[A-Za-z0-9_-]+$/.test(revealed) ? revealed : null;
   const pending = scan.status === 'queued' || scan.status === 'running';
 
   const extra = loaded ? (

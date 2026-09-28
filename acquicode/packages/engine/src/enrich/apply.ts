@@ -90,6 +90,18 @@ export class Enricher {
     } else if (publicDeps.length) {
       unknowns.add('security', `Known vulnerabilities in ${publicDeps.length} dependency version(s)`, 'Vulnerability enrichment (OSV) was not enabled for this analysis, so no advisories were checked. This is not the same as "no vulnerabilities".', 'Re-run with vulnerability enrichment enabled.');
     }
+    // Packages with no exact version (no lockfile) cannot be checked, whatever the provider.
+    const unversioned = deps.filter((d) => !d.private && !d.version && d.source !== 'vendored');
+    if (unversioned.length) {
+      const prodCount = unversioned.filter(prod).length;
+      unknowns.add(
+        'security',
+        `Known vulnerabilities in ${unversioned.length} ${unversioned.length === 1 ? 'dependency' : 'dependencies'} without an exact version`,
+        'No lockfile pins them, so the installed versions, and therefore the advisories that apply, cannot be determined.',
+        'Commit a lockfile and re-run the analysis.',
+        prodCount > 0,
+      );
+    }
     const privateCount = deps.filter((d) => d.private).length;
     if (privateCount) unknowns.add('security', `Vulnerability and license status of ${privateCount} private package(s)`, 'Private packages are never sent to external services.', 'Provide advisories or an SBOM for private packages.', false);
 

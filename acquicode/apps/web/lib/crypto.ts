@@ -119,6 +119,25 @@ function stateKey(): Buffer {
   return createHash('sha256').update('acquicode-state:').update(loadKeys()[0]!.key).digest();
 }
 
+/**
+ * A newly created secret (API token, share link, request token) is shown to its creator once.
+ * It travels to the page encrypted, bound to that user and valid for a few minutes, so it never
+ * appears in plaintext in URLs, browser history or proxy logs.
+ */
+export function sealReveal(value: string, userId: string, ttlSeconds = 600): string {
+  return encrypt(JSON.stringify({ v: value, u: userId, exp: Math.floor(Date.now() / 1000) + ttlSeconds }), 'reveal');
+}
+
+export function openReveal(sealed: string | string[] | undefined, userId: string): string | null {
+  if (typeof sealed !== 'string' || sealed.length > 2000) return null;
+  try {
+    const d = JSON.parse(decrypt(sealed, 'reveal').toString('utf8')) as { v: string; u: string; exp: number };
+    return d.u === userId && d.exp > Date.now() / 1000 && typeof d.v === 'string' ? d.v : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Key id that new data is encrypted with. */
 export function currentKeyId(): string {
   return loadKeys()[0]!.kid;

@@ -6,7 +6,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createServer, type Server } from 'node:http';
-import { createHash, generateKeyPairSync, randomBytes, createHmac } from 'node:crypto';
+import { createHash, generateKeyPairSync, randomBytes, createHmac, randomUUID } from 'node:crypto';
 import { existsSync, mkdtempSync, rmSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -90,6 +90,20 @@ async function http(path: string, init: RequestInit & { as?: Actor; origin?: str
   if (init.as) headers.set('cookie', init.as.cookie);
   if (init.origin !== null && init.method && init.method !== 'GET') headers.set('origin', init.origin ?? BASE);
   return fetch(`${BASE}${path}`, { ...init, headers, redirect: 'manual' });
+}
+
+/** Secrets are revealed once, on the page a creation redirects to; never in the URL. */
+async function reveal(location: string, as: Actor, pattern: RegExp): Promise<string> {
+  expect(location).not.toMatch(pattern);
+  const page = await http(new URL(location, BASE).pathname + new URL(location, BASE).search, { as });
+  const m = pattern.exec(await page.text());
+  expect(m, `secret on ${location}`).toBeTruthy();
+  return m![0];
+}
+
+async function verifyPage(fd: FormData): Promise<string> {
+  const v = await http('/api/verify', { method: 'POST', body: fd, origin: null });
+  return (await http(new URL(v.headers.get('location')!).pathname + new URL(v.headers.get('location')!).search)).text();
 }
 
 async function waitFor<T>(fn: () => Promise<T | null>, ms: number, label: string): Promise<T> {
@@ -217,7 +231,14 @@ describe.skipIf(!ready)('AcquiCode end to end', () => {
     expect(csp).toMatch(/script-src 'self' 'nonce-/);
     expect(csp).toMatch(/frame-ancestors 'none'/);
     expect(res.headers.get('x-frame-options')).toBe('DENY');
-    expect(await res.text()).toMatch(/Know what a buyer will find/);
+    const landing = await res.text();
+    expect(landing).toMatch(/Know what a buyer will find/);
+    // The standalone server must serve the built assets (a missing copy leaves the site unstyled).
+    const css = /href="(\/_next\/static\/[^"]+\.css)"/.exec(landing)?.[1];
+    expect(css).toBeTruthy();
+    const cssRes = await http(css!);
+    expect(cssRes.status).toBe(200);
+    expect(cssRes.headers.get('content-type')).toMatch(/text\/css/);
     expect((await http('/api/ready')).status).toBe(200);
     const sample = await http('/sample');
     expect(sample.status).toBe(200);
@@ -294,17 +315,33 @@ describe.skipIf(!ready)('AcquiCode end to end', () => {
     const fd = new FormData();
     fd.set('dossier', new Blob([dossierText]), 'dossier.json');
     fd.set('envelope', new Blob([envText]), 'dossier.dsse.json');
-    const v = await http('/api/verify', { method: 'POST', body: fd, origin: null });
-    const r = JSON.parse(Buffer.from(new URL(v.headers.get('location')!).searchParams.get('r')!, 'base64url').toString());
-    expect(r).toMatchObject({ signatureValid: true, dossierMatches: true, level: 'PLATFORM_ATTESTED' });
+    const page = await verifyPage(fd);
+    expect(page).toMatch(/Signature valid and dossier unaltered/);
+    expect(page).toMatch(/this platform’s current key/);
+    expect(page).toMatch(/PLATFORM_ATTESTED by/);
     const tampered = JSON.parse(dossierText);
     tampered.readiness.level = 'READY';
     const fd2 = new FormData();
     fd2.set('dossier', new Blob([JSON.stringify(tampered)]), 'dossier.json');
     fd2.set('envelope', new Blob([envText]), 'dossier.dsse.json');
-    const v2 = await http('/api/verify', { method: 'POST', body: fd2, origin: null });
-    const r2 = JSON.parse(Buffer.from(new URL(v2.headers.get('location')!).searchParams.get('r')!, 'base64url').toString());
-    expect(r2.dossierMatches).toBe(false);
+    expect(await verifyPage(fd2)).toMatch(/Verification failed[\s\S]*does not match the signed digest/);
+    // A crafted result in the URL is not shown: results are signed by the server.
+    const forgedResult = Buffer.from(JSON.stringify({ digest: 'f'.repeat(64), signatureValid: true, dossierMatches: true, readiness: 'READY', subjects: ['x'], problems: [] })).toString('base64url');
+    expect(await (await http(`/verify?r=${forgedResult}`)).text()).not.toMatch(/Signature valid and dossier unaltered/);
+    // A self-signed manifest that claims PLATFORM_ATTESTED is shown as self-attested.
+    const engine = await import('@acquicode/engine');
+    const k = engine.generateSigningKey();
+    const claim = engine.signStatement(engine.buildStatement(JSON.parse(dossierText), { level: 'PLATFORM_ATTESTED', producer: 'totally the platform' }), k.privateKey);
+    const fd3 = new FormData();
+    fd3.set('dossier', new Blob([dossierText]), 'dossier.json');
+    fd3.set('envelope', new Blob([JSON.stringify(claim)]), 'dossier.dsse.json');
+    fd3.set('key', k.publicKey);
+    const p3 = await verifyPage(fd3);
+    expect(p3).toMatch(/the key you supplied \(not this platform\)/);
+    expect(p3).toMatch(/SELF_ATTESTED by totally the platform[^<]*\(claimed PLATFORM_ATTESTED\)/);
+    expect(p3).toMatch(/claims PLATFORM_ATTESTED but was not signed by this platform/);
+    const keys = await (await http('/.well-known/acquicode-keys.json')).json();
+    expect(keys.keys[0]).toMatchObject({ status: 'current', algorithm: 'ed25519' });
   });
 
   it('isolates tenants: another organisation cannot see or download the dossier', async () => {
@@ -318,8 +355,7 @@ describe.skipIf(!ready)('AcquiCode end to end', () => {
 
   it('shares a read-only link, counts views, and revokes it', async () => {
     const res = await http(`/api/scans/${scanId}/share`, { method: 'POST', as: alice, body: new URLSearchParams({ label: 'Buyer counsel', days: '7' }) });
-    const token = new URL(res.headers.get('location')!, BASE).searchParams.get('share')!;
-    expect(token).toMatch(/^shr_/);
+    const token = await reveal(res.headers.get('location')!, alice, /shr_[A-Za-z0-9_-]{20,}/);
     const view = await http(`/s/${token}`);
     expect(view.status).toBe(200);
     expect(await view.text()).toMatch(/Buyer counsel/);
@@ -345,8 +381,7 @@ describe.skipIf(!ready)('AcquiCode end to end', () => {
 
   it('accepts a signed dossier pushed from the CLI with an API token', async () => {
     const created = await http('/api/tokens/create', { method: 'POST', as: alice, body: new URLSearchParams({ name: 'ci', days: '30' }) });
-    const token = new URL(created.headers.get('location')!, BASE).searchParams.get('token')!;
-    expect(token).toMatch(/^acq_/);
+    const token = await reveal(created.headers.get('location')!, alice, /acq_[A-Za-z0-9_-]{20,}/);
     const engine = await import('@acquicode/engine');
     const dossier = JSON.parse(await (await http(`/api/scans/${scanId}/download/json`, { as: alice })).text());
     dossier.subjects[0].name = 'laptop/demo';
@@ -361,6 +396,63 @@ describe.skipIf(!ready)('AcquiCode end to end', () => {
     const forged = await fetch(`${BASE}/api/v1/dossiers`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ dossier: { ...dossier, readiness: { level: 'READY', reasons: [] } }, envelope, publicKey: key.publicKey }) });
     expect(forged.status).toBe(422);
     expect((await fetch(`${BASE}/api/v1/dossiers`, { method: 'POST', headers: { authorization: 'Bearer acq_wrongwrongwrongwrongwrong', 'content-type': 'application/json' }, body: '{}' })).status).toBe(401);
+  });
+
+  it('lets a buyer request a dossier from a target without receiving code', async () => {
+    const created = await http('/api/requests', { method: 'POST', as: alice, body: new URLSearchParams({ target: 'Contoso Ltd', note: 'Please include the API and the web app.', days: '30' }) });
+    const location = created.headers.get('location')!;
+    expect(location).toMatch(/\/app\/requests\?created=/);
+    const token = await reveal(location, alice, /acq_[A-Za-z0-9_-]{20,}/);
+    const request = (await owner.query("SELECT id, status FROM dossier_requests WHERE org_id = $1 AND target = 'Contoso Ltd'", [alice.orgId])).rows[0];
+    expect(request.status).toBe('open');
+    // Request tokens are not general API tokens, and the page shows the instructions only once.
+    expect(await (await http('/app/settings', { as: alice })).text()).not.toMatch(/Request: Contoso/);
+    const rel = new URL(location, BASE);
+    expect(await (await http(rel.pathname + rel.search, { as: bob })).text()).not.toMatch(/acq_[A-Za-z0-9_-]{20,}/);
+    // The target analyses their own code and pushes a signed dossier.
+    const engine = await import('@acquicode/engine');
+    const dossier = JSON.parse(await (await http(`/api/scans/${scanId}/download/json`, { as: alice })).text());
+    dossier.subjects[0].name = 'contoso/api';
+    const key = engine.generateSigningKey();
+    const envelope = engine.signStatement(engine.buildStatement(dossier, { level: 'SELF_ATTESTED', producer: 'contoso ci' }), key.privateKey);
+    const push = await fetch(`${BASE}/api/v1/dossiers`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ dossier, envelope, publicKey: key.publicKey }) });
+    expect(push.status).toBe(201);
+    const r = (await owner.query('SELECT r.status, r.deliveries, s.attestation, repo.full_name FROM dossier_requests r JOIN scans s ON s.id = r.scan_id JOIN repositories repo ON repo.id = s.repository_id WHERE r.id = $1', [request.id])).rows[0];
+    expect(r).toMatchObject({ status: 'received', deliveries: 1, attestation: 'SELF_ATTESTED', full_name: 'Contoso-Ltd/contoso/api' });
+    expect(await (await http('/app/requests', { as: alice })).text()).toMatch(/received/);
+    // Cancelling stops the token immediately.
+    await http(`/api/requests/${request.id}/cancel`, { method: 'POST', as: alice });
+    const again = await fetch(`${BASE}/api/v1/dossiers`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ dossier, envelope, publicKey: key.publicKey }) });
+    expect(again.status).toBe(401);
+  });
+
+  it('refuses notification endpoints on private addresses, and re-checks them at delivery', async () => {
+    const bad = await http('/api/notifications', { method: 'POST', as: alice, body: new URLSearchParams([['url', 'https://169.254.169.254/latest/meta-data'], ['format', 'json'], ['events', 'scan.completed']]) });
+    expect(decodeURIComponent(bad.headers.get('location')!)).toMatch(/not allowed/);
+    // An endpoint whose address is (or later becomes) private must still never be called.
+    const id = randomUUID();
+    process.env.DATA_ENCRYPTION_KEYS = env.DATA_ENCRYPTION_KEYS;
+    const cfg = await import('../lib/config');
+    const crypto = await import('../lib/crypto');
+    cfg.resetConfig();
+    crypto.resetKeys();
+    await owner.query(
+      "INSERT INTO notification_endpoints (id, org_id, url_enc, url_hint, format, secret_enc, events) VALUES ($1, $2, $3, 'localhost/…', 'json', $4, ARRAY['scan.completed'])",
+      [id, alice.orgId, crypto.encrypt('https://127.0.0.1:9/hook', `notify-url:${id}`), crypto.encrypt('whsec_test', `notify:${id}`)],
+    );
+    const fd = new FormData();
+    fd.set('name', 'notify-demo');
+    fd.set('archive', new Blob([new Uint8Array(repoZip())], { type: 'application/zip' }), 'demo.zip');
+    await http('/api/uploads', { method: 'POST', as: alice, body: fd });
+    const ep = await waitFor(async () => {
+      const r = (await owner.query('SELECT last_status FROM notification_endpoints WHERE id = $1', [id])).rows[0];
+      return r?.last_status ? r : null;
+    }, 90_000, 'notification attempt');
+    expect(ep.last_status).toMatch(/^failed scan\.completed \(.*not allowed/);
+    const job = (await owner.query("SELECT payload FROM jobs WHERE kind = 'notify' AND payload->>'endpointId' = $1 LIMIT 1", [id])).rows[0];
+    expect(job.payload.payload).toMatchObject({ event: 'scan.completed', repository: { name: 'notify-demo' } });
+    expect(JSON.stringify(job.payload)).not.toMatch(/AKIA/);
+    await owner.query('DELETE FROM notification_endpoints WHERE id = $1', [id]);
   });
 
   it('rejects unsigned webhooks', async () => {
@@ -421,7 +513,7 @@ describe.skipIf(!ready)('AcquiCode end to end', () => {
   it('records an append-only audit trail', async () => {
     const r = await owner.query('SELECT action FROM audit_events WHERE org_id = $1 ORDER BY id', [alice.orgId]);
     const actions = r.rows.map((x: { action: string }) => x.action);
-    for (const a of ['upload.received', 'scan.succeeded', 'dossier.downloaded', 'share_link.created', 'share_link.viewed', 'share_link.revoked', 'declarations.saved', 'api_token.created', 'dossier.pushed', 'github.installation_connected', 'member.invited']) expect(actions).toContain(a);
+    for (const a of ['upload.received', 'scan.succeeded', 'dossier.downloaded', 'share_link.created', 'share_link.viewed', 'share_link.revoked', 'declarations.saved', 'api_token.created', 'dossier.pushed', 'github.installation_connected', 'member.invited', 'request.created', 'request.received', 'request.cancelled']) expect(actions).toContain(a);
   });
 
   it('rotates the encryption key: re-encrypts credentials and dossiers so the old key can be retired', async () => {

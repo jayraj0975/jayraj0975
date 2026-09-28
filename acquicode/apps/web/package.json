@@ -6,7 +6,7 @@
   "license": "UNLICENSED",
   "scripts": {
     "dev": "next dev",
-    "build": "next build && pnpm run build:node",
+    "build": "pnpm run build:cli && next build && pnpm run build:standalone && pnpm run build:node",
     "build:node": "esbuild worker/index.ts worker/runner.ts worker/reencrypt.ts scripts/migrate.ts --bundle --platform=node --format=esm --target=node22 --outdir=dist-node --external:pg-native --banner:js=\"import { createRequire as __acqCreateRequire } from 'node:module'; const require = __acqCreateRequire(import.meta.url);\" --out-extension:.js=.mjs --log-level=warning",
     "start": "next start",
     "worker": "node dist-node/worker/index.mjs",
@@ -15,7 +15,9 @@
     "dev:migrate": "tsx scripts/migrate.ts",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build:standalone": "node scripts/complete-standalone.mjs",
+    "build:cli": "esbuild ../../packages/cli/src/main.ts --bundle --platform=node --format=esm --target=node22 --outfile=public/cli/acquicode.mjs --banner:js=\"import { createRequire as __acqCreateRequire } from 'node:module'; const require = __acqCreateRequire(import.meta.url);\" --log-level=warning && node scripts/checksum.mjs public/cli/acquicode.mjs"
   },
   "dependencies": {
     "@acquicode/engine": "workspace:*",

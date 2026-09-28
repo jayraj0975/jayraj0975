@@ -9,6 +9,7 @@ import { curlResolvePin, isPublicAddress, resolvePublic } from '../lib/net';
 import { assertSameOrigin, formHandler, handler, HttpError, ipFromHeaders } from '../lib/http';
 import { sanitizeError } from '../lib/log';
 import { planFor } from '../lib/plans';
+import { buildDelivery, slackText, urlHint, verifyDelivery, type NotifyPayload } from '../lib/notify';
 
 const k1 = `k1:${randomBytes(32).toString('base64')}`;
 const k2 = `k2:${randomBytes(32).toString('base64')}`;
@@ -224,5 +225,43 @@ describe('configuration', () => {
 
   it('falls back to the free plan for unknown plan ids', () => {
     expect(planFor('does-not-exist').id).toBe('free');
+  });
+});
+
+describe('notifications', () => {
+  const payload: NotifyPayload = {
+    event: 'dossier.changed',
+    id: '00000000-0000-4000-8000-000000000001',
+    occurredAt: '2026-09-28T00:00:00.000Z',
+    organisation: { id: 'o', name: 'Acme' },
+    message: 'api <prod>: 2 material changes & readiness REVIEW → BLOCKED.',
+    url: 'https://app.example.com/app/scans/1',
+    changes: { material: 2, readinessFrom: 'REVIEW', readinessTo: 'BLOCKED', highlights: ['New finding SEC-001 <script>'] },
+  };
+
+  it('signs JSON deliveries so receivers can verify them', () => {
+    const now = 1_800_000_000_000;
+    const d = buildDelivery({ url: 'https://hooks.example.com/x', format: 'json', secret: 'whsec_abc' }, payload, now);
+    expect(JSON.parse(d.body)).toMatchObject({ event: 'dossier.changed', changes: { material: 2 } });
+    expect(d.headers['x-acquicode-event']).toBe('dossier.changed');
+    expect(verifyDelivery(d.body, d.headers['x-acquicode-signature']!, 'whsec_abc', now / 1000)).toBe(true);
+    expect(verifyDelivery(d.body, d.headers['x-acquicode-signature']!, 'wrong', now / 1000)).toBe(false);
+    expect(verifyDelivery(`${d.body} `, d.headers['x-acquicode-signature']!, 'whsec_abc', now / 1000)).toBe(false);
+    expect(verifyDelivery(d.body, d.headers['x-acquicode-signature']!, 'whsec_abc', now / 1000 + 301)).toBe(false);
+  });
+
+  it('formats Slack messages with escaping', () => {
+    const text = slackText(payload);
+    expect(text).toContain('&lt;prod&gt;');
+    expect(text).toContain('&amp; readiness');
+    expect(text).toContain('• New finding SEC-001 &lt;script&gt;');
+    expect(text).toContain('<https://app.example.com/app/scans/1|Open in AcquiCode>');
+    const d = buildDelivery({ url: 'https://hooks.slack.com/services/T1/B2/secret', format: 'slack', secret: 's' }, payload);
+    expect(Object.keys(JSON.parse(d.body))).toEqual(['text']);
+  });
+
+  it('never displays a webhook URL in full', () => {
+    expect(urlHint('https://hooks.slack.com/services/T000/B000/XXXXSECRET')).toBe('hooks.slack.com/services/…');
+    expect(urlHint('https://example.com/')).toBe('example.com/…');
   });
 });

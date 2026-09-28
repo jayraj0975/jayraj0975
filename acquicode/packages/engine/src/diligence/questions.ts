@@ -190,7 +190,11 @@ export const QUESTIONS: QuestionDef[] = [
       if (blocking(own).length) return { status: 'BLOCKING', rationale: blocking(own).map((f) => f.summary).join(' ') };
       if (own.length) return { status: 'ATTENTION', rationale: own.map((f) => f.summary).join(' ') };
       const performed = c.coverage.enrichment.some((e) => e.performed && e.source.includes('osv'));
-      if (!c.dependencies.some((d) => d.version && !d.private)) return { status: 'NOT_APPLICABLE', rationale: 'No public dependencies with exact versions were found to check.' };
+      const publicDeps = c.dependencies.filter((d) => !d.private && d.source !== 'vendored');
+      const unversioned = publicDeps.filter((d) => !d.version).length;
+      // Dependencies without an exact version cannot be checked: that is unknown, never "not applicable".
+      if (unversioned) return { status: 'UNKNOWN', rationale: `${unversioned} public ${unversioned === 1 ? 'dependency has' : 'dependencies have'} no exact version (no lockfile pins ${unversioned === 1 ? 'it' : 'them'}), so known vulnerabilities cannot be checked.${performed ? ' Dependencies with exact versions were checked.' : ''}` };
+      if (!publicDeps.length) return { status: 'NOT_APPLICABLE', rationale: 'No public dependencies.' };
       if (!performed) return { status: 'UNKNOWN', rationale: 'Advisories were not checked (vulnerability enrichment disabled). This is not a clean result.' };
       return { status: 'SATISFIED', rationale: 'No high or critical advisories affect production dependencies with exact versions. Reachability was not assessed.', state: 'OBSERVED' };
     },

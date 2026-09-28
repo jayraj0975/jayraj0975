@@ -1,6 +1,6 @@
 import type { Tx } from './db';
 
-export type JobKind = 'scan' | 'purge' | 'schedule';
+export type JobKind = 'scan' | 'purge' | 'schedule' | 'notify';
 
 export async function enqueue(c: Tx, orgId: string | null, kind: JobKind, payload: Record<string, unknown>, runAfterSeconds = 0): Promise<number> {
   const r = await c.query<{ id: string }>(

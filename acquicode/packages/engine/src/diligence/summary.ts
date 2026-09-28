@@ -55,7 +55,7 @@ export function buildSummary(d: Dossier): ExecutiveSummary {
   const vulnPerformed = d.coverage.enrichment.find((e) => e.performed && /osv/i.test(e.source));
   const vulnFinding = active.find((f) => f.rule === 'SEC-010');
   paragraphs.push(
-    `Dependencies and licenses: ${n(d.dependencies.length, 'dependency', 'dependencies')} across ${n(d.components.length, 'component')}; licenses known for ${lic.known}, likely for ${lic.likely}, unknown for ${lic.unknown}. Project license: ${lic.project.expression ?? 'not declared'}. ${vulnPerformed ? (vulnFinding ? vulnFinding.summary : `Advisories checked against ${vulnPerformed.source} on ${vulnPerformed.queriedAt?.slice(0, 10)}: none high or critical in production dependencies.`) : 'Known vulnerabilities were not checked (enrichment disabled); that section is UNKNOWN, not clean.'}`,
+    `Dependencies and licenses: ${n(d.dependencies.length, 'dependency', 'dependencies')} across ${n(d.components.length, 'component')}; licenses known for ${lic.known}, likely for ${lic.likely}, unknown for ${lic.unknown}. Project license: ${lic.project.expression ?? 'not declared'}. ${vulnSentence(d, vulnPerformed, vulnFinding)}`,
   );
 
   const unknownList = d.unknowns.filter((u) => u.material).slice(0, 4).map((u) => u.statement);
@@ -65,4 +65,17 @@ export function buildSummary(d: Dossier): ExecutiveSummary {
 
   const top = active.filter((f) => f.materiality === 'blocking' || f.materiality === 'material').slice(0, 6).map((f) => f.id);
   return { headline, paragraphs, counts, topFindings: top };
+}
+
+/** What was and was not checked for known vulnerabilities. Never reports "none" for packages that were not checked. */
+function vulnSentence(d: Dossier, performed: { source: string; queriedAt?: string } | undefined, finding: { summary: string } | undefined): string {
+  if (finding) return finding.summary;
+  const publicDeps = d.dependencies.filter((x) => !x.private && x.source !== 'vendored');
+  if (!publicDeps.length) return 'No public dependencies to check for known vulnerabilities.';
+  const versioned = publicDeps.filter((x) => x.version);
+  const unversioned = publicDeps.length - versioned.length;
+  const gap = unversioned ? ` ${unversioned} ${unversioned === 1 ? 'dependency has' : 'dependencies have'} no exact version (no lockfile pins ${unversioned === 1 ? 'it' : 'them'}), so ${unversioned === 1 ? 'its' : 'their'} advisories could not be checked: UNKNOWN, not clean.` : '';
+  if (!performed) return 'Known vulnerabilities were not checked (enrichment disabled); that section is UNKNOWN, not clean.';
+  if (!versioned.length) return `No dependency had an exact version, so nothing could be checked against ${performed.source}; known vulnerabilities are UNKNOWN, not clean.`;
+  return `Advisories checked against ${performed.source} on ${performed.queriedAt?.slice(0, 10)} for ${versioned.length} dependency ${versioned.length === 1 ? 'version' : 'versions'}: none high or critical in production dependencies.${gap}`;
 }

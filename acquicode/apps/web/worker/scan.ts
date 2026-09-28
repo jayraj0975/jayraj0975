@@ -11,6 +11,7 @@ import { curlResolvePin, resolvePublic } from '../lib/net';
 import { blobs, uploadKey } from '../lib/storage';
 import { audit } from '../lib/audit';
 import { storeDossier } from '../lib/dossiers';
+import { appLink, emit } from '../lib/notify';
 
 interface ScanRow {
   id: string;
@@ -174,6 +175,14 @@ export async function processScan(scanId: string, orgId: string): Promise<void> 
     await withOrg(orgId, async (tx) => {
       await tx.query("UPDATE scans SET status = 'failed', error = $2, finished_at = now() WHERE id = $1", [scanId, message]);
       await audit(tx, orgId, { type: 'system', id: 'worker' }, 'scan.failed', { type: 'scan', id: scanId }, { error: message });
+      const org = await row<{ name: string }>(tx, 'SELECT name FROM orgs WHERE id = $1', [orgId]);
+      await emit(tx, orgId, 'scan.failed', {
+        organisation: { id: orgId, name: org?.name ?? '' },
+        repository: { id: scan.repository_id, name: scan.full_name },
+        scan: { id: scanId, readiness: null },
+        url: appLink(`/app/scans/${scanId}`),
+        message: `${scan.full_name}: the analysis failed. ${message.slice(0, 300)}`,
+      });
     });
     throw err;
   } finally {

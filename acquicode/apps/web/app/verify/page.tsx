@@ -1,6 +1,7 @@
 import { Footer, TopBar } from '@/components/ui';
 import { currentUser } from '@/lib/session';
-import { platformKey } from '@/lib/signing';
+import { platformPublicKeys } from '@/lib/signing';
+import { verifyState } from '@/lib/crypto';
 
 export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Verify a dossier' };
@@ -10,7 +11,9 @@ interface Result {
   signatureValid: boolean | null;
   dossierMatches: boolean | null;
   keyid: string | null;
+  signer: 'platform' | 'platform-retired' | 'supplied' | null;
   level: string | null;
+  claimedLevel: string | null;
   producer: string | null;
   producedAt: string | null;
   readiness: string;
@@ -22,15 +25,17 @@ export default async function Verify({ searchParams }: { searchParams: Promise<R
   const params = await searchParams;
   const user = await currentUser();
   let result: Result | null = null;
-  if (typeof params.r === 'string') {
+  const signed = typeof params.r === 'string' ? verifyState<{ result: string }>(params.r) : null;
+  if (signed) {
     try {
-      result = JSON.parse(Buffer.from(params.r, 'base64url').toString('utf8')) as Result;
+      result = JSON.parse(signed.result) as Result;
     } catch {
       result = null;
     }
   }
   const error = typeof params.error === 'string' ? params.error : null;
-  const key = platformKey();
+  const keys = platformPublicKeys();
+  const key = keys.find((k) => k.status === 'current') ?? null;
   return (
     <>
       <TopBar signedIn={!!user} current="verify" />
@@ -46,8 +51,9 @@ export default async function Verify({ searchParams }: { searchParams: Promise<R
               <dt>Subjects</dt><dd>{result.subjects.join(', ')}</dd>
               <dt>Readiness in dossier</dt><dd>{result.readiness}</dd>
               <dt>Signature</dt><dd>{result.signatureValid === null ? 'not checked' : result.signatureValid ? `valid (${result.keyid})` : 'INVALID'}</dd>
+              <dt>Signed by</dt><dd>{result.signer === 'platform' ? 'this platform’s current key' : result.signer === 'platform-retired' ? 'a retired key of this platform (published at /.well-known/acquicode-keys.json)' : result.signer === 'supplied' ? 'the key you supplied (not this platform)' : '—'}</dd>
               <dt>Dossier matches signed digest</dt><dd>{result.dossierMatches === null ? 'not checked' : result.dossierMatches ? 'yes' : 'NO'}</dd>
-              <dt>Attestation</dt><dd>{result.level ? `${result.level} by ${result.producer} at ${result.producedAt}` : '—'}</dd>
+              <dt>Attestation</dt><dd>{result.level ? `${result.level} by ${result.producer} at ${result.producedAt}` : '—'}{result.claimedLevel && result.claimedLevel !== result.level ? ` (claimed ${result.claimedLevel})` : ''}</dd>
             </dl>
             {result.problems.length ? <ul>{result.problems.map((p) => <li key={p}>{p}</li>)}</ul> : null}
             <p className="small muted">A valid signature shows who produced the dossier and that it is unchanged. To confirm it describes the code, re-run the analyzer on the same commits and compare digests: <code>acquicode verify dossier.json --reproduce &lt;repo&gt;</code>.</p>
@@ -64,8 +70,8 @@ export default async function Verify({ searchParams }: { searchParams: Promise<R
           </div>
           <div className="field">
             <label htmlFor="key">Public key (PEM), optional</label>
-            <textarea id="key" name="key" placeholder={key ? 'Leave empty to use this platform’s key' : '-----BEGIN PUBLIC KEY-----'} style={{ minHeight: '6rem' }} />
-            <p className="hint">{key ? <>Default: the platform key {key.keyid}, published at /.well-known/acquicode-signing-key.pem.</> : 'This deployment has no platform signing key; paste the signer’s public key.'}</p>
+            <textarea id="key" name="key" placeholder={key ? 'Optional: the signer’s key, for self-attested dossiers' : '-----BEGIN PUBLIC KEY-----'} style={{ minHeight: '6rem' }} />
+            <p className="hint">{key ? <>This platform&apos;s keys ({keys.length === 1 ? key.keyid : `${keys.length} keys, current ${key.keyid}`}) are always checked; paste another key only for self-attested dossiers.</> : 'This deployment has no platform signing key; paste the signer’s public key.'}</p>
           </div>
           <button className="btn primary" type="submit">Verify</button>
         </form>

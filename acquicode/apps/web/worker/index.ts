@@ -43,6 +43,12 @@ async function run(job: Job): Promise<void> {
       await q("DELETE FROM jobs WHERE status IN ('done', 'failed') AND finished_at < now() - interval '30 days'");
       return;
     }
+    case 'notify': {
+      if (!job.org_id) throw new Error('notify job without organisation');
+      const { deliver } = await import('../lib/notify');
+      await deliver(job.org_id, String(job.payload.endpointId), job.payload.payload as import('../lib/notify').NotifyPayload);
+      return;
+    }
     case 'schedule': {
       // Daily re-scan of monitored repositories picks up new advisories even without pushes.
       const repos = await q<{ repository_id: string; org_id: string }>('SELECT repository_id, org_id FROM monitored_repositories()');
@@ -124,8 +130,19 @@ async function loop(slot: number): Promise<void> {
 async function main(): Promise<void> {
   const c = config();
   log().info({ worker: WORKER_ID, concurrency: c.WORKER_CONCURRENCY }, 'worker starting');
-  await recoverStale();
-  await ensureMaintenance();
+  // Wait for the database instead of crashing when it starts after the worker (compose, restarts).
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await recoverStale();
+      await ensureMaintenance();
+      break;
+    } catch (err) {
+      if (stopping) process.exit(0);
+      const wait = Math.min(30, 2 ** Math.min(attempt, 5));
+      log().warn({ err: sanitizeError(err), attempt, retryInSeconds: wait }, 'database not ready');
+      await new Promise((r) => setTimeout(r, wait * 1000));
+    }
+  }
   const timers = [setInterval(() => void recoverStale().catch(() => undefined), 60_000), setInterval(() => void ensureMaintenance().catch(() => undefined), 3_600_000)];
   const stop = () => {
     stopping = true;

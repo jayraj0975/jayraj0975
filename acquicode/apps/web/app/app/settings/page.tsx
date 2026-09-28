@@ -4,6 +4,8 @@ import { q, rows, withOrg } from '@/lib/db';
 import { PLANS, planFor } from '@/lib/plans';
 import { stripeConfigured } from '@/lib/config';
 import { effectivePlan } from '@/lib/entitlements';
+import { openReveal } from '@/lib/crypto';
+import { EVENT_LABELS, NOTIFY_EVENTS } from '@/lib/notify';
 
 export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Settings' };
@@ -12,16 +14,19 @@ export default async function Settings({ searchParams }: { searchParams: Promise
   const ctx = await requirePageContext();
   const sp = await searchParams;
   const admin = hasRole(ctx, 'admin');
-  const newToken = typeof sp.token === 'string' && /^acq_[A-Za-z0-9_-]+$/.test(sp.token) ? sp.token : null;
+  const revealed = openReveal(sp.reveal, ctx.user.id);
+  const newToken = revealed && /^acq_[A-Za-z0-9_-]+$/.test(revealed) ? revealed : null;
+  const newSecret = revealed && /^whsec_[A-Za-z0-9_-]+$/.test(revealed) ? revealed : null;
   const members = await q<{ user_id: string; login: string; name: string | null; role: string; created_at: Date }>(
     'SELECT m.user_id, u.login, u.name, m.role, m.created_at FROM memberships m JOIN users u ON u.id = m.user_id WHERE m.org_id = $1 ORDER BY m.created_at',
     [ctx.org.id],
   );
   const data = await withOrg(ctx.org.id, async (c) => ({
     invites: await rows<{ github_login: string; role: string }>(c, 'SELECT github_login, role FROM invitations ORDER BY created_at'),
-    tokens: await rows<{ id: string; name: string; prefix: string; created_at: Date; expires_at: Date | null; last_used_at: Date | null; revoked_at: Date | null }>(c, 'SELECT id, name, prefix, created_at, expires_at, last_used_at, revoked_at FROM api_tokens ORDER BY created_at DESC LIMIT 50'),
+    tokens: await rows<{ id: string; name: string; prefix: string; created_at: Date; expires_at: Date | null; last_used_at: Date | null; revoked_at: Date | null }>(c, 'SELECT id, name, prefix, created_at, expires_at, last_used_at, revoked_at FROM api_tokens WHERE request_id IS NULL ORDER BY created_at DESC LIMIT 50'),
     audit: await rows<{ id: string; action: string; actor_type: string; actor_id: string | null; target_type: string | null; target_id: string | null; created_at: Date; ip: string | null }>(c, 'SELECT id, action, actor_type, actor_id, target_type, target_id, created_at, ip FROM audit_events ORDER BY id DESC LIMIT 100'),
     plan: await effectivePlan(c, ctx.org.id),
+    endpoints: await rows<{ id: string; url_hint: string; format: string; events: string[]; created_at: Date; last_attempt_at: Date | null; last_status: string | null; consecutive_failures: number }>(c, 'SELECT id, url_hint, format, events, created_at, last_attempt_at, last_status, consecutive_failures FROM notification_endpoints ORDER BY created_at'),
   }));
   const planRow = await q<{ plan: string; plan_expires_at: Date | null }>('SELECT plan, plan_expires_at FROM orgs WHERE id = $1', [ctx.org.id]);
   const stored = planRow[0];
@@ -131,6 +136,62 @@ export default async function Settings({ searchParams }: { searchParams: Promise
               <select name="days" defaultValue="90" aria-label="Expiry"><option value="30">30 days</option><option value="90">90 days</option><option value="365">365 days</option></select>
               <button className="btn" type="submit">Create token</button>
             </form>
+          ) : null}
+        </section>
+
+        <section className="card" id="notifications" style={{ marginTop: '1.25rem' }}>
+          <h2 style={{ marginTop: 0 }}>Notifications</h2>
+          <p className="small">
+            Signed webhooks when a dossier is ready, an analysis fails, a snapshot changes materially, or a requested dossier arrives. Use a Slack incoming-webhook URL, or
+            any https endpoint that accepts JSON. Payloads contain names, levels, counts and links, never code.
+          </p>
+          {newSecret ? (
+            <div className="notice">
+              Signing secret for the new endpoint (shown once): <code>{newSecret}</code>
+              <div className="small muted">Each request carries <code>X-AcquiCode-Signature: t=&lt;unix&gt;,v1=&lt;HMAC-SHA256 of &quot;t.body&quot;&gt;</code>. Reject deliveries older than five minutes.</div>
+            </div>
+          ) : null}
+          {data.endpoints.length ? (
+            <div className="table-wrap">
+              <table className="table">
+                <thead><tr><th>Endpoint</th><th>Format</th><th>Events</th><th>Last delivery</th><th></th></tr></thead>
+                <tbody>
+                  {data.endpoints.map((e) => (
+                    <tr key={e.id}>
+                      <td><code>{e.url_hint}</code></td>
+                      <td className="small">{e.format === 'slack' ? 'Slack' : 'JSON'}</td>
+                      <td className="small">{e.events.map((x) => EVENT_LABELS[x as keyof typeof EVENT_LABELS] ?? x).join('; ')}</td>
+                      <td className={`small${e.consecutive_failures ? ' status-attention' : ''}`}>{e.last_status ? `${e.last_status} · ${fmtDate(e.last_attempt_at)}` : 'none yet'}</td>
+                      <td>
+                        {admin ? (
+                          <span className="row">
+                            <form action={`/api/notifications/${e.id}/test`} method="post"><button className="btn small" type="submit">Send test</button></form>
+                            <form action={`/api/notifications/${e.id}/delete`} method="post"><button className="btn small danger" type="submit">Remove</button></form>
+                          </span>
+                        ) : null}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : <p className="muted small">No endpoints.</p>}
+          {admin ? (
+            data.plan.limits.monitoring ? (
+              <form action="/api/notifications" method="post" style={{ marginTop: '0.75rem' }}>
+                <div className="row">
+                  <input name="url" type="url" required placeholder="https://hooks.slack.com/services/…" aria-label="Webhook URL" />
+                  <select name="format" defaultValue="slack" aria-label="Format"><option value="slack">Slack</option><option value="json">JSON (signed)</option></select>
+                </div>
+                <fieldset className="checks">
+                  <legend className="small muted">Events</legend>
+                  {NOTIFY_EVENTS.map((ev) => (
+                    <label key={ev} className="check"><input type="checkbox" name="events" value={ev} defaultChecked /> {EVENT_LABELS[ev]}</label>
+                  ))}
+                </fieldset>
+                <button className="btn" type="submit">Add endpoint</button>
+              </form>
+            ) : <p className="small muted">Notifications are included in the Readiness, Custody and Acquirer plans.</p>
           ) : null}
         </section>
 

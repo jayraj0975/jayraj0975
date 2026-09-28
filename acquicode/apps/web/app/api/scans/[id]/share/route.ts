@@ -1,4 +1,4 @@
-import { hashToken, randomToken } from '@/lib/crypto';
+import { hashToken, randomToken, sealReveal } from '@/lib/crypto';
 import { isUuid, withOrg } from '@/lib/db';
 import { assertSameOrigin, clientIp, formHandler, HttpError, redirectTo } from '@/lib/http';
 import { requireApiContext } from '@/lib/session';
@@ -24,5 +24,5 @@ export const POST = formHandler(async (req: Request, { params }: { params: Promi
     const r = await c.query<{ id: string }>("INSERT INTO share_links (org_id, scan_id, token_hash, label, expires_at, created_by) VALUES ($1, $2, $3, $4, now() + make_interval(days => $5), $6) RETURNING id", [ctx.org.id, id, hashToken(token), label, days, ctx.user.id]);
     await audit(c, ctx.org.id, { type: 'user', id: ctx.user.id }, 'share_link.created', { type: 'share_link', id: r.rows[0]!.id }, { scan: id, label, days }, clientIp(req));
   });
-  return redirectTo(`/app/scans/${id}?share=${encodeURIComponent(token)}`);
+  return redirectTo(`/app/scans/${id}?reveal=${encodeURIComponent(sealReveal(token, ctx.user.id))}`);
 });

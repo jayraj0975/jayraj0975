@@ -58,10 +58,11 @@ export default async function Connect({ searchParams }: { searchParams: Promise<
 
           <section className="card">
             <h2>CLI (code never leaves your machine)</h2>
-            <p className="small">Run the analysis where the code lives, then push only the dossier. Create an API token in <a href="/app/settings#tokens">Settings</a>.</p>
-            <pre className="small">{`acquicode keygen --out keys
-acquicode scan . --sign-key keys/acquicode-signing.key.pem
-acquicode push acquicode-out/dossier.json \\
+            <p className="small">Run the analysis where the code lives, then push only the dossier. Create an API token in <a href="/app/settings#tokens">Settings</a>. Full instructions, checksum and CI setup: <a href="/cli">the CLI page</a>.</p>
+            <pre className="small">{`curl -fsSL ${app}/cli/acquicode.mjs -o acquicode.mjs
+node acquicode.mjs keygen --out keys
+node acquicode.mjs scan . --sign-key keys/acquicode-signing.key.pem
+node acquicode.mjs push acquicode-out/dossier.json \\
   --envelope acquicode-out/dossier.dsse.json \\
   --key keys/acquicode-signing.pub.pem \\
   --server ${app} --token $ACQUICODE_TOKEN`}</pre>

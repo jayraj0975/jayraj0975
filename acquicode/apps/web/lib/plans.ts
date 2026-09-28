@@ -40,7 +40,7 @@ export const PLANS: Plan[] = [
     price: '$490',
     cadence: 'per month',
     audience: 'Companies within two years of a raise or exit; post-close integration',
-    features: ['Up to 25 repositories', 'Continuous monitoring on every push', 'Signed snapshot history (chain of custody)', 'Material-change timeline between snapshots', 'Share links'],
+    features: ['Up to 25 repositories', 'Continuous monitoring on every push', 'Signed snapshot history (chain of custody)', 'Material-change timeline, with Slack or webhook alerts', 'Share links'],
     limits: { repositories: 25, hostedScansPerMonth: 2000, shareLinks: true, monitoring: true, platformAttestation: true },
     checkout: { mode: 'subscription', amountCents: 49_000, interval: 'month' },
   },

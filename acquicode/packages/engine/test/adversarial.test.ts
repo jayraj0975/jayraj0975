@@ -318,6 +318,26 @@ describe('scale and limits', () => {
   });
 });
 
+describe('checks that could not run are never reported as clean', () => {
+  it('reports dependencies without a lockfile as unknown, not vulnerability-free', async () => {
+    const r = repo();
+    r.write('package.json', JSON.stringify({ name: 'nolock', dependencies: { express: '^4.19.0', 'left-pad': '^1.3.0' } }));
+    r.write('src/index.ts', 'export const a = 1;\n');
+    r.commit('Initial');
+    const none: VulnerabilityProvider = { name: 'fake-osv', async query(p) { return new Map(p.map((x) => [`${x.ecosystem}:${x.name}@${x.version}`, []])); } };
+    (none as unknown as { queriedAt: string }).queriedAt = '2026-01-01T00:00:00Z';
+    const d = await run(r, { enrichment: { vulnerabilities: none } });
+    const q = d.questions.find((x) => x.id === 'Q-SEC-2')!;
+    expect(q.status).toBe('UNKNOWN');
+    expect(q.rationale).toMatch(/no exact version/);
+    expect(d.unknowns.find((u) => /without an exact version/.test(u.statement))?.material).toBe(true);
+    const text = d.summary.paragraphs.join(' ');
+    expect(text).not.toMatch(/none high or critical/);
+    expect(text).toMatch(/UNKNOWN, not clean/);
+    expect(d.readiness.level).not.toBe('READY');
+  });
+});
+
 describe('READY is reachable, but only with evidence', () => {
   it('reaches READY for a clean, fully declared, enriched repository', async () => {
     const r = repo();

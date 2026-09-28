@@ -7,11 +7,21 @@ import pg from 'pg';
  * grants the application role the minimum it needs. Runs as the migration
  * (owner) role; the app role never owns tables and cannot bypass RLS.
  */
-export async function migrate(url: string, appRole: string, dir = join(process.cwd(), 'db/migrations')): Promise<string[]> {
+export async function migrate(url: string, appRole: string, dir = join(process.cwd(), 'db/migrations'), opts: { appPassword?: string } = {}): Promise<string[]> {
   const client = new pg.Client({ connectionString: url });
   await client.connect();
   const applied: string[] = [];
   try {
+    // Platforms that hand out one owner account (Railway, Render, Fly): create the unprivileged
+    // application role here when a password for it is provided and it does not exist yet.
+    if (opts.appPassword) {
+      const exists = await client.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [appRole]);
+      if (!exists.rowCount) {
+        const db = (await client.query<{ d: string }>('SELECT current_database() AS d')).rows[0]!.d;
+        await client.query(`CREATE ROLE ${client.escapeIdentifier(appRole)} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE PASSWORD ${client.escapeLiteral(opts.appPassword)}`);
+        await client.query(`GRANT CONNECT ON DATABASE ${client.escapeIdentifier(db)} TO ${client.escapeIdentifier(appRole)}`);
+      }
+    }
     const role = await client.query<{ rolsuper: boolean; rolbypassrls: boolean; is_owner: boolean; member_of_owner: boolean }>(
       'SELECT rolsuper, rolbypassrls, rolname = current_user AS is_owner, pg_has_role(rolname, current_user, \'MEMBER\') AS member_of_owner FROM pg_roles WHERE rolname = $1',
       [appRole],
@@ -63,7 +73,7 @@ if (isMain) {
     process.stderr.write('DATABASE_MIGRATION_URL or DATABASE_URL is required\n');
     process.exit(1);
   }
-  migrate(url, process.env.APP_DB_ROLE ?? 'acquicode_app').then(
+  migrate(url, process.env.APP_DB_ROLE ?? 'acquicode_app', undefined, { appPassword: process.env.APP_DB_PASSWORD }).then(
     (applied) => {
       process.stdout.write(applied.length ? `applied ${applied.join(', ')}\n` : 'database is up to date\n');
       process.exit(0);

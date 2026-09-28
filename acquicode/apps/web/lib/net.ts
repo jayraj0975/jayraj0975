@@ -60,14 +60,34 @@ function pinnedLookup(address: string, family: 4 | 6): LookupFunction {
   }) as unknown as LookupFunction;
 }
 
-/** GET a JSON document over https from a customer-supplied host, pinned to a public address. No redirects. */
-export async function getPublicJson(url: string, headers: Record<string, string>, timeoutMs = 15_000, maxBytes = 1_000_000): Promise<{ status: number; body: unknown }> {
+/**
+ * An https request to a customer-supplied host, pinned to a checked public
+ * address. No redirects are followed; the response body is capped.
+ */
+export async function requestPublic(
+  method: 'GET' | 'POST',
+  url: string,
+  headers: Record<string, string>,
+  body?: string,
+  timeoutMs = 15_000,
+  maxBytes = 1_000_000,
+): Promise<{ status: number; text: string }> {
   const u = new URL(url);
   if (u.protocol !== 'https:') throw new HttpError(400, 'Only https is allowed');
+  if (u.username || u.password) throw new HttpError(400, 'Credentials in the URL are not allowed');
   const { address, family } = await resolvePublic(u.hostname);
   return new Promise((ok, fail) => {
     const req = request(
-      { host: u.hostname, servername: isIP(u.hostname) ? undefined : u.hostname, port: u.port || 443, path: `${u.pathname}${u.search}`, method: 'GET', headers, lookup: pinnedLookup(address, family), timeout: timeoutMs },
+      {
+        host: u.hostname,
+        servername: isIP(u.hostname) ? undefined : u.hostname,
+        port: u.port || 443,
+        path: `${u.pathname}${u.search}`,
+        method,
+        headers: body !== undefined ? { ...headers, 'content-length': String(Buffer.byteLength(body)) } : headers,
+        lookup: pinnedLookup(address, family),
+        timeout: timeoutMs,
+      },
       (res) => {
         const chunks: Buffer[] = [];
         let size = 0;
@@ -76,23 +96,26 @@ export async function getPublicJson(url: string, headers: Record<string, string>
           if (size > maxBytes) req.destroy(new HttpError(502, 'Response too large'));
           else chunks.push(c);
         });
-        res.on('end', () => {
-          const text = Buffer.concat(chunks).toString('utf8');
-          let body: unknown = null;
-          try {
-            body = text ? JSON.parse(text) : null;
-          } catch {
-            body = null;
-          }
-          ok({ status: res.statusCode ?? 0, body });
-        });
+        res.on('end', () => ok({ status: res.statusCode ?? 0, text: Buffer.concat(chunks).toString('utf8') }));
         res.on('error', fail);
       },
     );
     req.on('timeout', () => req.destroy(new HttpError(504, 'Upstream timed out')));
     req.on('error', fail);
-    req.end();
+    req.end(body);
   });
+}
+
+/** GET a JSON document over https from a customer-supplied host, pinned to a public address. No redirects. */
+export async function getPublicJson(url: string, headers: Record<string, string>, timeoutMs = 15_000, maxBytes = 1_000_000): Promise<{ status: number; body: unknown }> {
+  const r = await requestPublic('GET', url, headers, undefined, timeoutMs, maxBytes);
+  let body: unknown = null;
+  try {
+    body = r.text ? JSON.parse(r.text) : null;
+  } catch {
+    body = null;
+  }
+  return { status: r.status, body };
 }
 
 /** git/curl argument pinning a host to a checked address for one clone. */

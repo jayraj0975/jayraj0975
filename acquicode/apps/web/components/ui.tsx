@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { site } from '@/lib/site';
 import type { ProvenanceState, QuestionStatus } from '@acquicode/engine';
 
 const STATE_LABEL: Record<ProvenanceState, string> = {
@@ -66,6 +67,7 @@ export function TopBar({ signedIn, current }: { signedIn: boolean; current?: str
             <>
               <Link href="/app" aria-current={current === 'app' ? 'page' : undefined}>Repositories</Link>
               <Link href="/app/connect" aria-current={current === 'connect' ? 'page' : undefined}>Add source</Link>
+              <Link href="/app/requests" aria-current={current === 'requests' ? 'page' : undefined}>Requests</Link>
               <Link href="/app/settings" aria-current={current === 'settings' ? 'page' : undefined}>Settings</Link>
               <Link href="/verify" aria-current={current === 'verify' ? 'page' : undefined}>Verify a dossier</Link>
             </>
@@ -73,6 +75,7 @@ export function TopBar({ signedIn, current }: { signedIn: boolean; current?: str
             <>
               <Link href="/sample">Sample dossier</Link>
               <Link href="/#how">How it works</Link>
+              <Link href="/#buyers">For buyers</Link>
               <Link href="/#pricing">Pricing</Link>
               <Link href="/verify">Verify a dossier</Link>
             </>
@@ -93,14 +96,34 @@ export function TopBar({ signedIn, current }: { signedIn: boolean; current?: str
 }
 
 export function Footer() {
+  const s = site();
   return (
     <footer className="footer">
-      <div className="wrap spread">
-        <span>AcquiCode · evidence-graded technical diligence. Not legal advice.</span>
-        <span className="row">
+      <div className="wrap footer-grid">
+        <div>
+          <div className="brand">AcquiCode</div>
+          <p className="small">Evidence-graded technical diligence for AI-built software. Not legal advice.</p>
+          {s.supportEmail ? <p className="small"><a href={`mailto:${s.supportEmail}`}>{s.supportEmail}</a></p> : null}
+        </div>
+        <nav aria-label="Product" className="small">
+          <strong>Product</strong>
+          <Link href="/sample">Sample dossier</Link>
+          <Link href="/#pricing">Pricing</Link>
+          <Link href="/verify">Verify a dossier</Link>
+          <Link href="/cli">CLI</Link>
+        </nav>
+        <nav aria-label="Trust" className="small">
+          <strong>Trust</strong>
           <Link href="/security">Security &amp; data handling</Link>
           <Link href="/.well-known/acquicode-signing-key.pem">Platform signing key</Link>
-        </span>
+          {s.securityEmail ? <a href={`mailto:${s.securityEmail}`}>Report a vulnerability</a> : null}
+        </nav>
+        <nav aria-label="Legal" className="small">
+          <strong>Legal</strong>
+          <Link href="/legal/terms">Terms</Link>
+          <Link href="/legal/privacy">Privacy</Link>
+          <Link href="/legal/subprocessors">Subprocessors</Link>
+        </nav>
       </div>
     </footer>
   );
