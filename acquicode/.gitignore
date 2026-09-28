@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.next/
+coverage/
+*.tsbuildinfo
+.env
+.env.local
+/data/
+/tmp/
+*.log
+dist-node/
+apps/web/data/
+apps/web/public/cli/
+
+# Build-time proxy CA certificates (see deploy/ca/README.md)
+deploy/ca/*.pem

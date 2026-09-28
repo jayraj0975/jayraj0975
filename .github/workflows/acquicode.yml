@@ -1,0 +1,71 @@
+name: acquicode
+
+on:
+  push:
+    paths: ['acquicode/**', '.github/workflows/acquicode.yml']
+  pull_request:
+    paths: ['acquicode/**', '.github/workflows/acquicode.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: acquicode-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: acquicode
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16-bookworm
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      TEST_DATABASE_ADMIN_URL: postgres://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: acquicode/.nvmrc
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+      - run: pnpm run typecheck
+      # Unit, adversarial and Meridian suites; database isolation as a non-superuser
+      # owner; end-to-end against the standalone build, the worker and a fake GitHub.
+      - run: pnpm test
+
+  image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Build the production image (slim base, git from apt)
+        run: docker build -t acquicode:ci .
+      - name: Start the compose stack
+        run: |
+          ./deploy/generate-env.sh > .env
+          ACQUICODE_IMAGE=acquicode:ci docker compose up -d --no-build --wait db web
+          docker compose ps -a
+      - name: Smoke test the running stack
+        run: node deploy/smoke.mjs http://127.0.0.1:3000
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs --no-color --tail 200
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

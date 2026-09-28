@@ -1,0 +1,39 @@
+{
+  "name": "@acquicode/engine",
+  "version": "0.1.0",
+  "description": "Deterministic evidence engine for software diligence",
+  "type": "module",
+  "license": "UNLICENSED",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./demo": {
+      "types": "./dist/demo/meridian.d.ts",
+      "default": "./dist/demo/meridian.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "lint": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "fflate": "^0.8.3",
+    "smol-toml": "^1.9.0",
+    "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.4",
+    "tsx": "^4.23.15",
+    "typescript": "5.9.3",
+    "vitest": "^4.1.11"
+  }
+}

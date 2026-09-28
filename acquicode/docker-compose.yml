@@ -1,0 +1,109 @@
+# AcquiCode: web, worker, migrations and PostgreSQL.
+#   ./deploy/generate-env.sh > .env      # then review APP_URL and integrations
+#   docker compose up -d --build
+#   docker compose --profile tls up -d   # adds Caddy with automatic HTTPS for $DOMAIN
+name: acquicode
+
+x-image: &image
+  image: ${ACQUICODE_IMAGE:-acquicode:local}
+  build:
+    context: .
+    args:
+      RUNTIME_BASE: ${RUNTIME_BASE:-node:22-bookworm-slim}
+
+# Only what the application needs; database owner and superuser passwords stay with db and migrate.
+x-app-env: &app-env
+  NODE_ENV: production
+  APP_URL: ${APP_URL:?set APP_URL in .env}
+  DATABASE_URL: postgres://acquicode_app:${DB_APP_PASSWORD:?}@db:5432/acquicode
+  DATA_ENCRYPTION_KEYS: ${DATA_ENCRYPTION_KEYS:?set DATA_ENCRYPTION_KEYS in .env}
+  PLATFORM_SIGNING_KEY: ${PLATFORM_SIGNING_KEY:-}
+  TRUST_PROXY: ${TRUST_PROXY:-0}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  STORAGE_DRIVER: ${STORAGE_DRIVER:-fs}
+  STORAGE_DIR: /data/blobs
+  S3_BUCKET: ${S3_BUCKET:-}
+  S3_REGION: ${S3_REGION:-us-east-1}
+  S3_ENDPOINT: ${S3_ENDPOINT:-}
+  GITHUB_APP_ID: ${GITHUB_APP_ID:-}
+  GITHUB_APP_SLUG: ${GITHUB_APP_SLUG:-}
+  GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY:-}
+  GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+  GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+  GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
+  STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+  STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+
+services:
+  db:
+    image: postgres:16-bookworm
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      ACQ_OWNER_PASSWORD: ${DB_OWNER_PASSWORD:?set DB_OWNER_PASSWORD in .env}
+      ACQ_APP_PASSWORD: ${DB_APP_PASSWORD:?set DB_APP_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./deploy/postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d acquicode"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  migrate:
+    <<: *image
+    command: ["node", "dist-node/scripts/migrate.mjs"]
+    environment:
+      DATABASE_MIGRATION_URL: postgres://acquicode_owner:${DB_OWNER_PASSWORD:?}@db:5432/acquicode
+      APP_DB_ROLE: acquicode_app
+    depends_on:
+      db: { condition: service_healthy }
+    restart: "no"
+
+  web:
+    <<: *image
+    init: true
+    environment: *app-env
+    volumes:
+      - blobs:/data
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    restart: unless-stopped
+
+  worker:
+    <<: *image
+    init: true
+    command: ["node", "dist-node/worker/index.mjs"]
+    environment:
+      <<: *app-env
+      # Clones live in the container's own filesystem and are deleted after each scan.
+      WORK_DIR: /tmp/acquicode-work
+    volumes:
+      - blobs:/data
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    healthcheck:
+      disable: true
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2
+    profiles: ["tls"]
+    environment:
+      DOMAIN: ${DOMAIN:-}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy:/data
+    depends_on: [web]
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  blobs:
+  caddy:

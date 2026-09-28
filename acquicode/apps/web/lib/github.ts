@@ -1,0 +1,195 @@
+import { createHash, createSign } from 'node:crypto';
+import { config } from './config';
+import { hmacSha256Hex, safeEqual } from './crypto';
+import { HttpError } from './errors';
+import { githubCreds, type GithubCreds } from './github-config';
+
+/**
+ * GitHub App integration. Read-only permissions (contents, metadata, pull
+ * requests). Installation tokens are minted per job, scoped to one repository,
+ * expire in an hour and are never stored.
+ */
+
+function b64url(b: Buffer | string): string {
+  return Buffer.from(b).toString('base64url');
+}
+
+export function appJwt(creds: Pick<GithubCreds, 'appId' | 'privateKey'>, now = Math.floor(Date.now() / 1000)): string {
+  if (!creds.appId || !creds.privateKey) throw new HttpError(503, 'GitHub App is not configured on this deployment');
+  const header = b64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
+  const payload = b64url(JSON.stringify({ iat: now - 60, exp: now + 540, iss: creds.appId }));
+  const signer = createSign('RSA-SHA256');
+  signer.update(`${header}.${payload}`);
+  return `${header}.${payload}.${signer.sign(creds.privateKey).toString('base64url')}`;
+}
+
+async function gh<T>(path: string, init: RequestInit & { token?: string; jwt?: boolean } = {}): Promise<T> {
+  const c = config();
+  const auth = init.jwt ? `Bearer ${appJwt(await githubCreds())}` : init.token ? `Bearer ${init.token}` : undefined;
+  const res = await fetch(`${c.GITHUB_API_URL}${path}`, {
+    ...init,
+    headers: {
+      accept: 'application/vnd.github+json',
+      'x-github-api-version': '2022-11-28',
+      'user-agent': 'acquicode',
+      ...(auth ? { authorization: auth } : {}),
+      ...(init.headers ?? {}),
+    },
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!res.ok) throw new HttpError(res.status === 404 ? 404 : 502, `GitHub API ${path.split('?')[0]} returned ${res.status}`);
+  return (await res.json()) as T;
+}
+
+export interface Installation {
+  id: number;
+  account: { login: string; type: string };
+  suspended_at: string | null;
+}
+
+export function getInstallation(id: number): Promise<Installation> {
+  return gh<Installation>(`/app/installations/${id}`, { jwt: true });
+}
+
+export async function installationToken(installationId: number, repositoryIds?: number[]): Promise<string> {
+  const body: Record<string, unknown> = { permissions: { contents: 'read', metadata: 'read', pull_requests: 'read' } };
+  if (repositoryIds?.length) body.repository_ids = repositoryIds;
+  const r = await gh<{ token: string }>(`/app/installations/${installationId}/access_tokens`, { method: 'POST', jwt: true, body: JSON.stringify(body) });
+  return r.token;
+}
+
+export interface GhRepo {
+  id: number;
+  full_name: string;
+  default_branch: string;
+  clone_url: string;
+  private: boolean;
+  archived: boolean;
+}
+
+export async function listInstallationRepos(token: string): Promise<GhRepo[]> {
+  const out: GhRepo[] = [];
+  for (let page = 1; page <= 20; page++) {
+    const r = await gh<{ repositories: GhRepo[] }>(`/installation/repositories?per_page=100&page=${page}`, { token });
+    out.push(...r.repositories);
+    if (r.repositories.length < 100) break;
+  }
+  return out;
+}
+
+export async function oauthAuthorizeUrl(state: string): Promise<string> {
+  const c = config();
+  const gh = await githubCreds();
+  if (!gh.clientId) throw new HttpError(503, 'GitHub sign-in is not configured on this deployment');
+  const u = new URL('/login/oauth/authorize', c.GITHUB_WEB_URL);
+  u.searchParams.set('client_id', gh.clientId);
+  u.searchParams.set('redirect_uri', new URL('/api/auth/github/callback', c.APP_URL).toString());
+  u.searchParams.set('state', state);
+  u.searchParams.set('allow_signup', 'true');
+  return u.toString();
+}
+
+export interface GithubIdentity {
+  id: number;
+  login: string;
+  name: string | null;
+  email: string | null;
+}
+
+/** Exchange an OAuth code for a user token. The token lives only for the current request. */
+async function exchangeCode(code: string): Promise<string> {
+  const c = config();
+  const gh = await githubCreds();
+  if (!gh.clientId || !gh.clientSecret) throw new HttpError(503, 'GitHub sign-in is not configured on this deployment');
+  const res = await fetch(new URL('/login/oauth/access_token', c.GITHUB_WEB_URL), {
+    method: 'POST',
+    headers: { accept: 'application/json', 'content-type': 'application/json', 'user-agent': 'acquicode' },
+    body: JSON.stringify({ client_id: gh.clientId, client_secret: gh.clientSecret, code, redirect_uri: new URL('/api/auth/github/callback', c.APP_URL).toString() }),
+    signal: AbortSignal.timeout(20_000),
+  });
+  const tok = (await res.json()) as { access_token?: string; error?: string };
+  if (!tok.access_token) throw new HttpError(401, `GitHub sign-in failed${tok.error ? `: ${tok.error}` : ''}`);
+  return tok.access_token;
+}
+
+async function identityFromToken(token: string): Promise<GithubIdentity> {
+  const user = await gh<GithubIdentity>('/user', { token });
+  let email = user.email;
+  if (!email) {
+    try {
+      const emails = await gh<Array<{ email: string; primary: boolean; verified: boolean }>>('/user/emails', { token });
+      email = emails.find((e) => e.primary && e.verified)?.email ?? null;
+    } catch {
+      email = null;
+    }
+  }
+  return { id: user.id, login: user.login, name: user.name, email };
+}
+
+/** Exchange an OAuth code for the user's identity. The user token is used once and discarded. */
+export async function githubIdentity(code: string): Promise<GithubIdentity> {
+  return identityFromToken(await exchangeCode(code));
+}
+
+/**
+ * Exchange an OAuth code and return the identity plus the ids of the App
+ * installations that GitHub says this user can access. Used to verify an
+ * installation before binding it to an organisation: the installation_id that
+ * GitHub appends to the setup URL is just a query parameter anyone can edit.
+ */
+export async function githubIdentityWithInstallations(code: string): Promise<{ identity: GithubIdentity; installations: Set<number> }> {
+  const token = await exchangeCode(code);
+  const identity = await identityFromToken(token);
+  const installations = new Set<number>();
+  for (let page = 1; page <= 20; page++) {
+    const r = await gh<{ installations: Array<{ id: number }> }>(`/user/installations?per_page=100&page=${page}`, { token });
+    for (const i of r.installations) installations.add(i.id);
+    if (r.installations.length < 100) break;
+  }
+  return { identity, installations };
+}
+
+/** Development sign-in ids: stable, negative, and never equal to a real GitHub id. */
+export function devGithubId(login: string): number {
+  return -Number.parseInt(createHash('sha256').update(login.toLowerCase()).digest('hex').slice(0, 12), 16);
+}
+
+/**
+ * Resolve a GitHub username to its immutable numeric id. Invitations bind to
+ * the id: usernames can be renamed and then registered by someone else.
+ */
+export async function resolveGithubLogin(login: string, dev = false): Promise<{ id: number; login: string }> {
+  if (dev) return { id: devGithubId(login), login };
+  const c = config();
+  const res = await fetch(`${c.GITHUB_API_URL}/users/${encodeURIComponent(login)}`, {
+    headers: { accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28', 'user-agent': 'acquicode' },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (res.status === 404) throw new HttpError(400, `There is no GitHub user called ${login}`);
+  if (res.status === 403 || res.status === 429) throw new HttpError(503, 'GitHub is rate-limiting username lookups; try again in a few minutes');
+  if (!res.ok) throw new HttpError(502, `GitHub returned ${res.status} looking up ${login}`);
+  const u = (await res.json()) as { id?: unknown; login?: unknown; type?: unknown };
+  if (typeof u.id !== 'number' || typeof u.login !== 'string') throw new HttpError(502, 'Unexpected response from GitHub');
+  if (u.type !== 'User') throw new HttpError(400, `${u.login} is an organisation, not a person`);
+  return { id: u.id, login: u.login };
+}
+
+/** Fails closed: no configured secret, or credentials that cannot be read, reject every delivery. */
+export async function verifyGithubSignature(body: Buffer, signature: string | null): Promise<boolean> {
+  if (!signature?.startsWith('sha256=')) return false;
+  let secret: string | null;
+  try {
+    secret = (await githubCreds()).webhookSecret;
+  } catch {
+    return false;
+  }
+  if (!secret) return false;
+  return safeEqual(signature, `sha256=${hmacSha256Hex(secret, body)}`);
+}
+
+export async function installUrl(state: string): Promise<string> {
+  const c = config();
+  const gh = await githubCreds();
+  if (!gh.slug) throw new HttpError(503, 'GitHub App is not configured on this deployment');
+  return `${c.GITHUB_WEB_URL}/apps/${encodeURIComponent(gh.slug)}/installations/new?state=${encodeURIComponent(state)}`;
+}

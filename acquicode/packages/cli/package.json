@@ -1,0 +1,26 @@
+{
+  "name": "@acquicode/cli",
+  "version": "0.1.0",
+  "description": "Run AcquiCode diligence analysis where the code lives",
+  "type": "module",
+  "license": "UNLICENSED",
+  "bin": {
+    "acquicode": "dist/main.js"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && chmod +x dist/main.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "lint": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@acquicode/engine": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.4",
+    "tsx": "^4.23.15",
+    "typescript": "5.9.3",
+    "vitest": "^4.1.11"
+  }
+}
