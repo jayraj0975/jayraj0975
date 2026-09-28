@@ -79,7 +79,7 @@ export default async function Setup({ searchParams }: { searchParams: Promise<Re
         ) : !setupEnabled() ? (
           <div className="notice warn" style={{ margin: '1.25rem 0' }}>
             This deployment is not connected to GitHub and web setup is disabled. Set <code>SETUP_TOKEN</code> (24 or more random characters) in the environment and
-            restart, or set the GitHub variables directly (DEPLOYMENT.md, section 5).
+            restart, or set the GitHub variables directly (DEPLOYMENT.md, section 6).
           </div>
         ) : !unlocked ? (
           <section className="card" style={{ margin: '1.25rem 0' }}>
