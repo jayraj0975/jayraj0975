@@ -232,3 +232,6 @@ input[type='email'] { width: 100%; padding: 0.5rem 0.65rem; border: 1px solid va
 .checks-list { list-style: none; padding: 0; margin: 0; }
 .checks-list li { padding: 0.55rem 0; border-top: 1px solid var(--line); }
 .checks-list li:first-child { border-top: 0; }
+
+/* Long unbreakable tokens (emails, paths, hashes) wrap instead of widening the page. */
+.card, .finding, .notice, .verdict, .preview { overflow-wrap: break-word; }
