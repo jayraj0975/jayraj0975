@@ -65,7 +65,8 @@ class S3Store implements BlobStore {
   async put(key: string, data: Buffer): Promise<void> {
     checkKey(key);
     const { PutObjectCommand } = await import('@aws-sdk/client-s3');
-    await (await this.client()).send(new PutObjectCommand({ Bucket: this.bucket, Key: key, Body: encryptBlob(data, key), ServerSideEncryption: 'AES256' }));
+    const sse = config().S3_SERVER_SIDE_ENCRYPTION;
+    await (await this.client()).send(new PutObjectCommand({ Bucket: this.bucket, Key: key, Body: encryptBlob(data, key), ...(sse === 'off' ? {} : { ServerSideEncryption: sse }) }));
   }
   async get(key: string): Promise<Buffer> {
     return decryptBlob(await this.getRaw(key), key);
@@ -90,6 +91,29 @@ export function blobs(): BlobStore {
   const c = config();
   store = c.STORAGE_DRIVER === 's3' ? new S3Store(c.S3_BUCKET!) : new FsStore(resolve(c.STORAGE_DIR));
   return store;
+}
+
+let storageCheck: { at: number; ok: boolean } | null = null;
+
+/**
+ * Round trip through blob storage (write, read back, delete) with the real
+ * encryption. Cached for a minute per process, so the public readiness
+ * endpoint cannot be used to generate storage traffic.
+ */
+export async function storageReady(): Promise<boolean> {
+  if (storageCheck && Date.now() - storageCheck.at < 60_000) return storageCheck.ok;
+  const key = 'health/readiness-check';
+  const probe = Buffer.from(`ready ${Date.now()}`);
+  let ok = false;
+  try {
+    await blobs().put(key, probe);
+    ok = (await blobs().get(key)).equals(probe);
+    await blobs().delete(key);
+  } catch {
+    ok = false;
+  }
+  storageCheck = { at: Date.now(), ok };
+  return ok;
 }
 
 export function dossierKey(orgId: string, scanId: string): string {

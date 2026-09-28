@@ -23,6 +23,9 @@ const schema = z.object({
   S3_REGION: z.string().default('us-east-1'),
   S3_ENDPOINT: z.string().optional(),
   S3_FORCE_PATH_STYLE: z.enum(['true', 'false']).default('false'),
+  // Server-side encryption requested on upload, on top of the application's own encryption.
+  // "off" for S3-compatible stores that reject the header (Railway buckets, some MinIO setups).
+  S3_SERVER_SIDE_ENCRYPTION: z.enum(['AES256', 'aws:kms', 'off']).default('AES256'),
 
   WORK_DIR: z.string().default('./data/work'),
   MAX_UPLOAD_MB: z.coerce.number().int().min(1).max(2048).default(200),

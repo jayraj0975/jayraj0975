@@ -8,18 +8,18 @@ pnpm run typecheck
 TEST_DATABASE_ADMIN_URL=postgres://postgres:postgres@localhost:5432/postgres pnpm test
 ```
 
-**144 tests in 8 files.** All pass locally and in CI (`.github/workflows/acquicode.yml`). The database-backed suites create their own databases and roles, and skip with a printed reason only if PostgreSQL or the build is missing. CI provides both, so nothing is skipped there.
+**154 tests in 8 files.** All pass locally and in CI (`.github/workflows/acquicode.yml`). The database-backed suites create their own databases and roles, and skip with a printed reason only if PostgreSQL or the build is missing. CI provides both, so nothing is skipped there.
 
 | Suite | Tests | What it proves |
 |---|---|---|
 | `packages/engine/test/unit.test.ts` | 42 | State lattice (conjunction never stronger than its weakest input; agreement never manufactures certainty). Canonical JSON and ids. Git trailer and commit parsing. AI identity and signal matching, including editor-inserted trailers. git-ai and Agent Trace parsing. SPDX expressions and license-text fingerprints. Secret rules and redaction. CVSS 3.x. Zip safety. Declarations parsing. |
 | `packages/engine/test/ecosystems.test.ts` | 12 | Manifests and lockfiles across npm, Yarn (v1 and Berry), pnpm, pip, Poetry, uv, PDM, Pipenv, Go, Cargo, Bundler, Composer and Maven; private-package detection. |
 | `packages/engine/test/meridian.test.ts` | 13 | The synthetic company end to end (§1): the exact readiness, rules, AI counts, tools, states, suppressions and unknowns. No secret leaks into any output. A rebuilt checkout gives the same digest. CycloneDX, signing and tamper detection, diffs, enrichment replay, HTML sections. |
-| `packages/engine/test/adversarial.test.ts` | 26 | Hostile inputs and the uncertainty-to-certainty release blocker (§2). |
+| `packages/engine/test/adversarial.test.ts` | 27 | Hostile inputs and the uncertainty-to-certainty release blocker (§2). |
 | `packages/cli/test/cli.test.ts` | 6 | scan/sign/gate/artifacts, verify plus reproduce, tamper detection, diff, clear errors. |
-| `apps/web/test/unit.test.ts` | 20 | Encryption (tamper, context binding, rotation, blob swapping). Signed OAuth state. Stripe and GitHub signatures. SSRF guards (address classes, encoded IPs, internal names, resolution, pinning). Trusted-proxy IP selection. Cross-origin refusal. Form error redirects. API CSP. Log redaction. Production config refusals. |
-| `apps/web/test/db.test.ts` | 9 | Tenant isolation in PostgreSQL with a **non-superuser owner** (as on managed databases) (§3). |
-| `apps/web/test/e2e.test.ts` | 16 | The standalone production build plus the worker plus a fresh database, driven over HTTP, with a stand-in for GitHub (§4). |
+| `apps/web/test/unit.test.ts` | 23 | Encryption (tamper, context binding, rotation, blob swapping). Signed OAuth state. Stripe and GitHub signatures (failing closed without a secret). Outbound webhook signatures, Slack escaping and URL hints. SSRF guards (address classes, encoded IPs, internal names, resolution, pinning). Trusted-proxy IP selection. Cross-origin refusal. Form error redirects. API CSP. Log redaction. Production config refusals. |
+| `apps/web/test/db.test.ts` | 10 | Tenant isolation in PostgreSQL with a **non-superuser owner** (as on managed databases) (§3). |
+| `apps/web/test/e2e.test.ts` | 21 | The standalone production build plus the worker plus a fresh database, driven over HTTP, with a stand-in for GitHub, and a second server with no GitHub configuration for operator setup (§4). |
 
 ## 1. Meridian Systems: the messy synthetic company
 
@@ -108,10 +108,15 @@ Starts `.next/standalone/.../server.js` and `dist-node/worker/index.mjs` with pr
 9. **Audit trail.** Every expected action is recorded.
 10. **Key rotation.** Credentials and dossiers are re-encrypted, readable with the new key alone, and a second run is idempotent.
 11. **Repository deletion.** Rows and encrypted blobs are removed.
+12. **Secrets shown once.** Share links and API tokens never appear in a redirect URL; the page reveals them to the creating user only.
+13. **Verification.** A valid dossier verifies; a tampered one fails; a hand-crafted `/verify?r=` result is refused; a self-signed manifest claiming platform attestation is shown as self-attested; the key history is published.
+14. **Dossier requests.** A buyer creates a request; the target pushes a signed dossier with the request token; it is filed under the target and marked received; cancelling revokes the token.
+15. **Notifications.** Endpoints on private addresses are refused when added, and an endpoint that points at one anyway is refused again at delivery (recorded as failed).
+16. **Operator setup** (second server, no GitHub variables): sign-in explains that setup is needed; setup stays locked without the token, refuses cross-origin unlocks, wrong tokens, callbacks from other browsers, forged states and codes GitHub rejects; creates the App from the manifest (read-only permissions, correct URLs), stores it encrypted, only once; then sign-in and webhook verification use the stored credentials while the environment-configured server keeps its own.
 
 ## 5. What is not tested (yet)
 
 - A real GitHub App, real GitLab, and real Stripe accounts. They are exercised through stand-ins and signature tests only.
-- S3 storage (the filesystem driver is exercised; S3 shares the encryption code).
+- S3 storage in CI. The S3 driver was exercised by hand against an S3 emulator (`s3rver`, path-style, server-side encryption off): upload, worker analysis, encrypted dossier (`ACQ1`, no plaintext), download, and removal of the consumed upload. `/api/ready` round-trips a blob on every deployment.
 - Load: many concurrent workers, very large organisations.
 - An external penetration test.

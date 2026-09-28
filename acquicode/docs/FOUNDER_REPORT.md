@@ -13,7 +13,7 @@ Date: 27 September 2026. Labels follow MARKET.md: **FACT** (sourced), **OBSERVAT
 | 5 | Can it acquire customers without enormous sales overhead? | **Sellers: plausibly** (GitHub sign-in, a free CLI, a public sample, share links that expose buyers and counsel to the product). **Enterprise: no**, it will need sales. | Enterprise is last in the roadmap. First distribution test: advisors and startup counsel (ROADMAP.md "Now"). |
 | 6 | Is there recurring revenue? | **Designed, unproven.** Custody and Acquirer are monthly; Readiness is one-time. ASSUMPTION A3. | Custody is sold on the continuity a buyer values (a signed history), not on alerts we don't send yet. |
 | 7 | Can most operations be automated? | **Yes.** Deterministic analysis, a self-serve workflow, a Postgres-backed queue. Humans are needed only for enterprise onboarding and sales. | Built that way (OBSERVATION: the hosted scan path has no human step). |
-| 8 | Can a tiny team maintain it? | **Yes, with one caveat.** One TypeScript codebase, one database, one image, 144 tests, green CI. The caveat: parsers and AI attribution formats churn, and the VS Code trailer episode shows the rules need continuous research. | Rules are versioned and every evidence source is graded, so a noisy new format degrades to "corroborating", not to wrong answers. |
+| 8 | Can a tiny team maintain it? | **Yes, with one caveat.** One TypeScript codebase, one database, one image, 154 tests, green CI. The caveat: parsers and AI attribution formats churn, and the VS Code trailer episode shows the rules need continuous research. | Rules are versioned and every evidence source is graded, so a noisy new format degrades to "corroborating", not to wrong answers. |
 | 9 | Can it expand into a larger category? | **Plausibly** (ASSUMPTION): software chain-of-title for M&A → R&W underwriting input → vendor due diligence when enterprises buy from AI-built startups → SBOM and vulnerability duties under the EU CRA (SBOM obligations from December 2027, FACT) → post-merger integration. | Kept the engine general (multi-repository, standard formats), not M&A-specific. |
 | 10 | Is it meaningfully different from Forge? | **Unverified.** The only "Forge" in the account is `jayraj0975/demand-forge`. Access to read it was not granted in this session, so no comparison was made. By name it appears to address demand generation; AcquiCode is a technical-diligence product with a different buyer, workflow and data. **Treat this as an open question for the founder to confirm.** | Nothing in AcquiCode depends on or overlaps with that repository. |
 
@@ -48,10 +48,13 @@ Sellers can't answer from memory, and the evidence that exists (commit metadata,
 - A deterministic evidence engine: git history, 13 package managers, licenses, secrets, CI and supply chain, and AI attribution from git-ai notes, Agent Trace, trailers and blame, with every claim carrying a provenance state.
 - Twelve invariants that refuse to emit an over-claiming dossier.
 - A CLI (scan, sign, verify-by-reproduction, diff, push).
-- A hosted app: GitHub App, GitLab, ZIP; worker; signed dossiers; share links; continuous mode; buyer token-and-push; audit trail; billing.
+- A hosted app: GitHub App, GitLab, ZIP; worker; signed dossiers; share links; continuous mode; buyer dossier requests (a single-use push token per target, an inbox of what arrived); signed Slack/webhook notifications; audit trail; billing.
+- A public website: landing page with a live sample dossier, pricing, `/verify`, the CLI served with a checksum at `/cli`, security, terms, privacy and a configuration-driven subprocessor list, `security.txt`, platform key history.
 - PostgreSQL with forced row-level security.
-- One container image, a compose stack and CI.
-- 144 tests, including an end-to-end suite against the production build and replays of every attack found.
+- One container image, a compose stack, a one-container start for Railway-style platforms, and CI.
+- One-click operator setup: `/setup` creates the GitHub App from a manifest.
+- **Live:** <https://acquicode-production.up.railway.app> on Railway (PostgreSQL, a bucket for encrypted blobs). Deployed from this branch; migrations applied on first start; the sample dossier renders there with the same digest as a local build (OBSERVATION). Sign-in opens once the operator completes `/setup` with their GitHub account.
+- 154 tests, including an end-to-end suite against the production build and replays of every attack found.
 
 **Moat (to be earned, not claimed).**
 
@@ -117,7 +120,8 @@ What the team has *not* shown is the M&A network that distribution depends on. T
 - "Regulation requires this" positioning.
 - The brief's $499 snapshot price.
 - Per-developer pricing.
-- Plan features that didn't exist (alerts, portfolio view, SSO, self-hosted workers), removed from the copy until built.
+- Plan features that didn't exist (portfolio view, SSO, self-hosted workers), removed from the copy until built. Alerts were built later (signed webhooks and Slack) and only then returned to the Custody plan.
+- Invented contact addresses (`support@<host>`): contact details now appear only when configured.
 
 **What changed during autonomous research.**
 

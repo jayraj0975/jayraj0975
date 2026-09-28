@@ -55,7 +55,9 @@ A CI example (GitHub Actions):
 
 Uploads a dossier (no source code) into the organisation that owns the token.
 
-- **Auth:** `Authorization: Bearer acq_…`. Tokens are created by admins in Settings, stored hashed, expire, and can only write dossiers.
+- **Auth:** `Authorization: Bearer acq_…`. Tokens are stored hashed, expire, and can only write dossiers. Two kinds exist:
+  - **workspace tokens**, created by admins in Settings;
+  - **request tokens**, created with a dossier request (`/app/requests`) and handed to a target company. A request token files each dossier as `<target>/<name>` in the requesting organisation, marks the request received, notifies subscribed endpoints (`request.received`), and stops working when the request is cancelled (the token is revoked with it) or expires: both answer `401`.
 - **Rate limit:** 120 requests per hour per token.
 - **Body** (JSON, up to 80 MB):
   ```json
@@ -82,8 +84,11 @@ Uploads a dossier (no source code) into the organisation that owns the token.
 |---|---|---|
 | GET | `/api/health` | Liveness. |
 | GET | `/api/ready` | Database reachable; number of applied migrations. |
-| GET | `/.well-known/acquicode-signing-key.pem` | Public half of the platform signing key (404 if none is configured). |
-| POST | `/verify` form → `/api/verify` | Multipart `dossier`, `envelope`, optional `key`. Redirects to `/verify?r=…` with signature validity, digest match, attestation level and key id. Rate limited per client. |
+| GET | `/.well-known/acquicode-signing-key.pem` | Public half of the current platform signing key (404 if none is configured). |
+| GET | `/.well-known/acquicode-keys.json` | Every platform key: `{ "keys": [{ "keyid", "status": "current" \| "retired", "algorithm": "ed25519", "publicKeyPem" }] }`. Dossiers signed before a rotation stay verifiable. |
+| GET | `/.well-known/security.txt` | RFC 9116 contact for vulnerability reports (404 when no `SECURITY_EMAIL`/`CONTACT_EMAIL` is configured). |
+| GET | `/cli/acquicode.mjs`, `/cli/acquicode.mjs.sha256` | The CLI as one file, and its SHA-256 in `shasum` format. `/cli` documents install, signing, push and CI. |
+| POST | `/verify` form → `/api/verify` | Multipart `dossier`, `envelope`, optional `key`. Checks against every platform key plus the supplied key, then redirects to `/verify?r=…`, a server-signed one-hour result (signature validity, digest match, signer, attestation level, key id), so a crafted link cannot display a forged result. A manifest that claims PLATFORM_ATTESTED but is not signed by a platform key is shown as SELF_ATTESTED, with a warning. Rate limited per client. |
 | GET | `/sample`, `/api/sample/download/{json,html,sbom}` | The synthetic Meridian Systems dossier (demo data, labelled). |
 | GET | `/s/{token}` | Read-only shared dossier. Every view is counted and audited. |
 | GET | `/api/s/{token}/download/{json,html,sbom,envelope}` | Downloads through a share link. Counted, audited, rate limited. |
@@ -101,7 +106,7 @@ All mutations are form POSTs with a same-origin check. On error they redirect ba
 | GET | `/api/auth/github/callback` | – | Sign-in; also completes installation verification. |
 | POST | `/api/auth/logout` | any | End the session. |
 | POST | `/api/github/install` | admin | Start installing the GitHub App (signed state). |
-| GET | `/api/github/setup` | admin | After installation: sends the admin through GitHub authorisation to verify access (see DEPLOYMENT.md §5). |
+| GET | `/api/github/setup` | admin | After installation: sends the admin through GitHub authorisation to verify access (see DEPLOYMENT.md §6). |
 | POST | `/api/repos/gitlab` | admin | Connect a GitLab project (URL plus project access token). |
 | POST | `/api/uploads` | member | Upload a ZIP of a repository for a hosted scan. |
 | POST | `/api/repos/{id}/scan` | member | Queue a scan. |
@@ -110,19 +115,44 @@ All mutations are form POSTs with a same-origin check. On error they redirect ba
 | POST | `/api/repos/{id}/register` | member | Upload the IP register (CSV). |
 | POST | `/api/repos/{id}/delete` | admin | Hard-delete a repository and its dossiers (type its name to confirm). |
 | GET | `/api/scans/{id}/download/{json,html,sbom,envelope}` | viewer | Downloads (audited). The HTML is served under a sandbox CSP. |
-| POST | `/api/scans/{id}/share` | admin | Create a read-only link (7, 30 or 90 days). The token is shown once. |
+| POST | `/api/scans/{id}/share` | admin | Create a read-only link (7, 30 or 90 days). The link is shown once (see "Secrets shown once" below). |
 | POST | `/api/share/{id}/revoke` | admin | Revoke a link. |
 | POST | `/api/settings` | admin | Organisation name, retention, enrichment. |
 | POST | `/api/tokens/create`, `/api/tokens/{id}/revoke` | admin | API tokens. |
+| POST | `/api/requests` | member | Create a dossier request (`target`, optional `note`, `days` 7/30/90) with its request token. At most 50 open requests. |
+| POST | `/api/requests/{id}/cancel` | member | Cancel a request and revoke its token. |
+| POST | `/api/notifications` | admin | Add a webhook endpoint (`url` https only, `format` json or slack, `events[]`). Needs a plan with monitoring; at most 10 per organisation. |
+| POST | `/api/notifications/{id}/test`, `/api/notifications/{id}/delete` | admin | Send a signed test delivery; remove an endpoint. |
 | POST | `/api/members/invite`, `/api/members/{userId}/remove` | admin | Members. Only owners can invite admins; the last owner cannot be removed. |
 | POST | `/api/org/select` | any | Switch organisation. |
 | POST | `/api/org/delete` | owner | Delete the organisation and everything in it. |
 | POST | `/api/billing/checkout` | admin | Start Stripe Checkout for a plan. |
 | POST | `/api/auth/dev` | – | Development sign-in. Disabled in production. |
 
+**Secrets shown once.** API tokens, request tokens, share links and webhook signing secrets never travel in a URL in plain text. The creating route redirects with `?reveal=`, a value sealed with the data encryption key, bound to the signed-in user and valid for ten minutes; only that user's page render can open it.
+
+**Operator setup** (no account; unlocked with `SETUP_TOKEN`):
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/setup` | Status, the GitHub App manifest form, and the deployment checklist. |
+| POST | `/api/setup/unlock` | Form field `token`. Sets a signed, HttpOnly, 30-minute `acq_setup` cookie. Same-origin only; 10 attempts per 15 minutes per client. |
+| GET | `/api/setup/github/callback` | GitHub's redirect after creating the App. Requires the setup cookie and a state AcquiCode issued; exchanges the one-time code at `POST /app-manifests/{code}/conversions` and stores the App encrypted. Works once. |
+
 API responses carry `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'; sandbox` unless the route sets its own.
 
-## 5. Declarations file (`acquicode.yml`)
+## 5. Outbound webhooks
+
+Endpoints added in Settings receive `POST` requests for the events they subscribe to: `scan.completed`, `scan.failed`, `dossier.changed` (material change or a readiness change since the previous snapshot) and `request.received`, plus `test`.
+
+- **Headers:** `X-AcquiCode-Event`, `X-AcquiCode-Delivery` (unique id), `X-AcquiCode-Signature: t=<unix>,v1=<hex HMAC-SHA256 of "t.body" with the endpoint secret>`. Reject deliveries whose `t` is more than five minutes old.
+- **JSON body:** `{ event, id, occurredAt, organisation: {id, name}, message, url, repository?, scan?: {id, readiness}, changes?: {material, readinessFrom, readinessTo, highlights[]}, request?: {id, target} }`. Names, levels, counts and links only: never code, file contents, evidence extracts or secrets.
+- **Slack format:** `{ "text": "…" }` for incoming webhooks, same signature header.
+- **Delivery:** from the worker, https only, to public addresses only (checked at creation and again at delivery, connection pinned to the checked address), no redirects, 10-second timeout, retried with backoff. The endpoint's last status is shown in Settings.
+
+The URL of an endpoint is itself a secret (a Slack URL lets anyone post to the channel): it is stored encrypted, and Settings shows only a hint.
+
+## 6. Declarations file (`acquicode.yml`)
 
 The company's statements. Every statement is recorded as USER_ASSERTED, and contradictions with the evidence are findings.
 

@@ -60,6 +60,7 @@ This is how the reference deployment runs: one service built from this repositor
    | `STORAGE_DRIVER` | `s3` |
    | `S3_BUCKET`, `S3_ENDPOINT`, `S3_REGION` | `${{acquicode-blobs.BUCKET}}`, `${{acquicode-blobs.ENDPOINT}}`, `${{acquicode-blobs.REGION}}` |
    | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | `${{acquicode-blobs.ACCESS_KEY_ID}}`, `${{acquicode-blobs.SECRET_ACCESS_KEY}}` |
+   | `S3_SERVER_SIDE_ENCRYPTION` | `off` (Railway buckets do not support the SSE header; blobs are encrypted by the application either way) |
    | `TRUST_PROXY` | `1` (Railway's edge proxy) |
    | `WORK_DIR` | `/tmp/acquicode-work` |
    | `WORKER_CONCURRENCY` | `1` on small instances (1 GB of memory on the trial) |
@@ -101,7 +102,8 @@ All configuration is environment variables, validated at start-up (`apps/web/lib
 | `SESSION_TTL_HOURS` | no | Default 168. |
 | `STORAGE_DRIVER` | no | `fs` (default) or `s3`. |
 | `STORAGE_DIR` | fs | Blob directory (image default `/data/blobs`). Must be shared by web and worker. |
-| `S3_BUCKET`, `S3_REGION`, `S3_ENDPOINT`, `S3_FORCE_PATH_STYLE` | s3 | S3 or a compatible store. Blobs are encrypted by the app before upload; SSE is requested as well. |
+| `S3_BUCKET`, `S3_REGION`, `S3_ENDPOINT`, `S3_FORCE_PATH_STYLE` | s3 | S3 or a compatible store. Blobs are encrypted by the app before upload. |
+| `S3_SERVER_SIDE_ENCRYPTION` | no | `AES256` (default), `aws:kms` or `off`: server-side encryption requested in addition to the app's own. Use `off` for stores that reject the header (Railway buckets). `/api/ready` round-trips a test blob, so a store that refuses uploads shows up at deploy time. |
 | `WORK_DIR` | no | Worker scratch space for clones. Should be ephemeral. |
 | `MAX_UPLOAD_MB` | no | Default 200. |
 | `SCAN_TIMEOUT_SECONDS` | no | Default 1800. The analysis child process is killed after this. |
@@ -194,7 +196,7 @@ The smoke check needs no credentials. It covers:
 
 - health;
 - that stylesheets and scripts are served (a standalone build without its static assets renders unstyled);
-- the database connection and applied migrations;
+- the database connection, applied migrations, and a write/read/delete round trip through blob storage;
 - security headers (including HSTS on https);
 - the analysis engine and git inside the image, by building the sample dossier;
 - the sign-in redirect;

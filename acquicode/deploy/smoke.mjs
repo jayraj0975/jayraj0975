@@ -22,11 +22,11 @@ function assert(cond, msg) {
 const get = (path) => fetch(`${base}${path}`, { redirect: 'manual', signal: AbortSignal.timeout(120_000) });
 
 await check('health', async () => assert((await get('/api/health')).ok, 'not ok'));
-await check('database reachable and migrated', async () => {
+await check('database migrated and blob storage round-trips', async () => {
   const r = await get('/api/ready');
   const body = await r.json();
-  assert(r.ok && body.status === 'ready', JSON.stringify(body));
-  assert(body.migrations >= 3, `only ${body.migrations} migrations applied`);
+  assert(r.ok && body.status === 'ready' && body.storage === 'ok', JSON.stringify(body));
+  assert(body.migrations >= 6, `only ${body.migrations} migrations applied`);
 });
 await check('security headers', async () => {
   const r = await get('/');

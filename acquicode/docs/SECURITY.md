@@ -60,15 +60,20 @@ Repositories are hostile input. The engine:
   - Connections are pinned to the checked address, including `git clone` through `http.curloptResolve`.
   - No redirects are followed, and the clone URL is never taken from the remote's response.
 - **Share links.** 32-byte random tokens, stored hashed, expire in 7–90 days, can be revoked, and every view is counted and audited.
-- **API tokens.** Stored hashed. They can only upload dossiers; they cannot read anything.
+- **API tokens.** Stored hashed. They can only upload dossiers; they cannot read anything. Request tokens (given to a target by a buyer) also stop working when the request is cancelled or expires.
+- **Secrets shown once** (API and request tokens, share links, webhook secrets) are never put in a URL in plain text. The redirect carries a value sealed with the data key, bound to the user and valid for ten minutes, so browser history, proxies and referrers never see the secret.
+- **Verification results are signed.** `/verify?r=` carries a server-signed result, so nobody can craft a link that displays "valid" for a forged dossier. A manifest that claims platform attestation is shown as self-attested unless a published platform key signed it.
+- **Outbound webhooks** go only to https URLs on public addresses, checked when the endpoint is added and again at every delivery, with the connection pinned to the checked address and no redirects. Endpoint URLs and signing secrets are encrypted at rest. Payloads carry names, levels, counts and links, never code or evidence.
+- **Operator setup** (`/setup`) is unlocked only with `SETUP_TOKEN` (compared as hashes in constant time, rate limited, same-origin), through a signed HttpOnly cookie. The GitHub App credentials GitHub returns are stored encrypted with the data key and bound to their row. Setup closes once an App exists.
 
 ## 5. Keys
 
 | Key | Where | Rotation |
 |---|---|---|
 | Data encryption keys | `DATA_ENCRYPTION_KEYS` (environment or secret manager) | Prepend a new key, run `node dist-node/worker/reencrypt.mjs`, then remove the old key. See RUNBOOK.md. |
-| Platform signing key | `PLATFORM_SIGNING_KEY` | Replace it and publish the new public key. Dossiers signed with the old key carry its key id; keep old public keys available to verifiers (RUNBOOK.md). |
-| GitHub App private key | `GITHUB_APP_PRIVATE_KEY` | Generate a new key in GitHub, deploy it, then delete the old one there. |
+| Platform signing key | `PLATFORM_SIGNING_KEY` | Replace it and move the old public key to `PLATFORM_RETIRED_PUBLIC_KEYS`. Both are published at `/.well-known/acquicode-keys.json`, and `/verify` accepts either, so dossiers signed before the rotation stay verifiable (RUNBOOK.md). |
+| GitHub App private key | `GITHUB_APP_PRIVATE_KEY`, or stored encrypted in `platform_secrets` when created through `/setup` | Generate a new key in GitHub, deploy it (as the variable, which takes precedence), then delete the old one there. |
+| Notification endpoint secrets and URLs | encrypted in `notification_endpoints` | Remove the endpoint and add it again; covered by `reencrypt.mjs` on data-key rotation. |
 | Webhook secrets | `GITHUB_WEBHOOK_SECRET`, `STRIPE_WEBHOOK_SECRET`, per-repository GitLab secrets (stored hashed) | Change them at the provider and in configuration together. |
 
 ## 6. Known limitations (honest)

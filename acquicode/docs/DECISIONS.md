@@ -157,3 +157,18 @@ The worker, analysis runner, migrations and re-encryption tool are bundled with 
 
 ## D17. Key rotation includes retirement
 Multiple decryption keys alone let you add a key but never remove one. `reencrypt.mjs` re-encrypts credentials and dossier bodies under the current key, idempotently, so the old key can be retired. It is tested end to end.
+
+## D18. A fresh deployment must be usable without hand-copied credentials
+Sign-in depends on a GitHub App, and creating one by hand means copying six values between two consoles, where one typo leaves a site nobody can log into. `/setup` uses GitHub's manifest flow instead: one click creates the App with exactly the permissions and URLs AcquiCode needs, and the credentials GitHub returns are stored encrypted. Guarded by `SETUP_TOKEN`, bound to the browser that unlocked it, one-time, closed once an App exists; environment variables always win so infrastructure-as-code deployments are unaffected. Rejected: email magic links (another third party and deliverability problems before the first user) and passwords (a weaker identity than the GitHub account every customer already uses for their code).
+
+## D19. One container for small deployments
+Platforms like Railway run one process per service and attach a volume to one service only, so web and worker could not share a filesystem. `start.mjs` migrates, then runs both in one container and exits if either stops so the platform restarts them together; blobs go to S3-compatible storage. Larger deployments still run web and worker separately from the same image.
+
+## D20. Contact details are configured, never inferred
+The site used to derive `support@<host>`. On a hosting provider's domain that address cannot exist, and on a custom domain it might not. A contact address that bounces is a false claim on a trust product, so unset now means not shown.
+
+## D21. Secrets never travel in URLs; results that confer trust are signed
+Found in QA: tokens and share links were in redirect URLs, and `/verify` results were plain base64 that anyone could forge into a "valid" page. Now secrets travel sealed and user-bound, verification results are server-signed, and a self-signed dossier that claims platform attestation is shown for what it is.
+
+## D22. Readiness means storage works too
+`/api/ready` round-trips an encrypted blob (cached for a minute), because a deployment whose bucket rejects writes looks healthy until the first customer uploads code. It was added when Railway's documentation showed its buckets do not support server-side encryption while the uploader always requested it; the header is now configurable with `S3_SERVER_SIDE_ENCRYPTION`, and the check proves the setting on every deploy.

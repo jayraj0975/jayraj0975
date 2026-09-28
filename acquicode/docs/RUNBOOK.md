@@ -63,6 +63,7 @@ Then delete `orgs/<org>/` from blob storage. Record the request and its completi
    ```sh
    docker compose run --rm worker node dist-node/worker/reencrypt.mjs
    # {"currentKey":"k2026b","credentials":{"checked":3,"reencrypted":3},"blobs":{"checked":41,"reencrypted":41,"missing":0}}
+   # On Railway (one service): run it from a one-off shell in the service, e.g. `railway ssh`, then the same command.
    ```
    It is idempotent: run it again and it reports 0 re-encrypted.
 4. Remove the old key from `DATA_ENCRYPTION_KEYS` and deploy.
@@ -71,19 +72,21 @@ Then delete `orgs/<org>/` from blob storage. Record the request and its completi
 ### Rotate the platform signing key
 
 1. Generate a key: `openssl genpkey -algorithm ed25519`, or `acquicode keygen`.
-2. **Before** switching, save the current public key (`/.well-known/acquicode-signing-key.pem`) somewhere verifiers can fetch it. Dossiers signed with it carry its key id and remain verifiable with that public key.
-3. Set `PLATFORM_SIGNING_KEY` and deploy. New dossiers are signed with the new key.
+2. Save the current public key (`/.well-known/acquicode-signing-key.pem`) and **append** it to `PLATFORM_RETIRED_PUBLIC_KEYS` (PEM blocks one after another; `\n`-escaped is accepted).
+3. Set `PLATFORM_SIGNING_KEY` to the new key and deploy. New dossiers are signed with it.
+4. Check `/.well-known/acquicode-keys.json`: the new key is `current`, the old one `retired`. `/verify` accepts both, so dossiers signed before the rotation still show as platform-attested.
 
-The endpoint publishes only the current key. Publishing a key history is on the roadmap. Until then, announce rotations and keep old public keys available.
+Never remove a retired key while dossiers it signed may still be presented to a buyer.
 
 ### Other keys
 
-- **GitHub App private key:** generate a new key in the App settings, deploy it, then delete the old one in GitHub.
+- **GitHub App private key:** generate a new key in the App settings, deploy it, then delete the old one in GitHub. If the App was created through `/setup`, deploy the new key as the `GITHUB_*` variables (they take precedence over the stored App), or delete the `github_app` row in `platform_secrets` and run setup again.
+- **`SETUP_TOKEN`:** only needed until GitHub is connected. Remove it from the environment afterwards; the checklist on `/setup` then needs it re-added to be shown.
 - **Webhook secrets:** change them at GitHub or Stripe and in configuration at the same time. Deliveries in between fail and are retried by the sender.
 
 ## 5. Backups and restore
 
-- **PostgreSQL:** use your provider's point-in-time recovery, or `pg_dump` as the schema owner. Dumps contain encrypted GitLab tokens and hashed tokens, never plaintext secrets.
+- **PostgreSQL:** use your provider's point-in-time recovery, or `pg_dump` as the schema owner. Dumps contain encrypted credentials (GitLab tokens, notification endpoints, a GitHub App created through `/setup`) and hashed tokens, never plaintext secrets.
 - **Blobs:** back up the volume or bucket. Every object is application-encrypted.
 - **Restoring needs both, and the encryption keys that were current when they were taken.** Without the keys, blobs and credentials cannot be decrypted. That is intended, but it means keys must be backed up separately and securely.
 

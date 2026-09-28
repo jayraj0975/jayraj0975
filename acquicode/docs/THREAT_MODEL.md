@@ -62,11 +62,18 @@ Scope: the hosted product (web, worker, database, blob storage), the CLI, and th
 | T20 | Encryption key compromise or loss | 7 | Key ids in every ciphertext. Rotation and re-encryption tool. Production refuses to start without keys. The development key is public and refused in production. | `unit.test.ts`, `e2e.test.ts` |
 | T21 | Share-link token leakage (forwarded email) | 2 | Links expire (7–90 days), can be revoked, and every view is counted and audited with IP. Tokens are stored hashed. Links show one dossier, read-only. | `e2e.test.ts` |
 | T22 | Blob swapping between tenants in shared storage | 1, 7 | Each blob is encrypted with its storage key as associated data, so a moved blob fails to decrypt. | `unit.test.ts` |
+| T23 | **Secrets leak through URLs.** A token or share link in a redirect lands in browser history, proxy logs or a `Referer` | 1, 7 | Secrets shown once travel as a sealed, user-bound, ten-minute value; the page decrypts it for that user only. *Found and fixed during QA (plaintext tokens were in redirect URLs).* | `e2e.test.ts` |
+| T24 | **Forged verification results.** A seller sends a buyer a `/verify` link that displays "valid" for a tampered dossier | 6 | Results are server-signed with a one-hour expiry; unsigned or altered results are refused. *Found and fixed during QA (results were base64 in the URL).* | `e2e.test.ts` |
+| T25 | **Self-signed dossier claiming platform attestation** | 6 | The claimed level is shown as SELF_ATTESTED, with a warning, unless a published platform key (current or retired) signed it. The CLI prints the same caveat. *Found and fixed during QA.* | `e2e.test.ts` |
+| T26 | **SSRF through a notification endpoint**, including an address that resolves publicly when added and privately later | 2, 5 | https only; the address is checked when the endpoint is added and again at each delivery, and the connection is pinned to the checked address; no redirects; ten-second timeout; response bodies are not stored. | `e2e.test.ts` |
+| T27 | **Hijacking setup** on a fresh deployment: creating an attacker-controlled GitHub App, or replaying a manifest code | 1 | `SETUP_TOKEN` required (hash comparison, rate limit, same-origin), signed state plus an HttpOnly cookie bound to the browser that unlocked setup, one-time GitHub code, first writer wins, closed once an App exists; environment variables always take precedence. | `e2e.test.ts` |
+| T28 | A request token handed to a target company is reused to read or write other data | 6 | Request tokens can only upload dossiers into the requesting organisation, filed under the target's name; they expire, stop working when the request is cancelled, and are revoked with it. | `e2e.test.ts` |
 
 ## 5. Residual risks we accept today
 
 - **The web process can decrypt every tenant's data.** Isolation is enforced by row-level security and per-object binding, not per-tenant keys. Customer-managed keys are on the roadmap.
 - **Self-attested dossiers are only as honest as the seller's machine.** The product labels this; it does not solve it.
-- **The worker needs network egress to customer forges.** An egress policy denying private ranges is a deployment requirement (DEPLOYMENT.md §7), not something the image can enforce.
+- **The worker needs network egress to customer forges.** An egress policy denying private ranges is a deployment requirement (DEPLOYMENT.md §8), not something the image can enforce.
 - **Enrichment responses are trusted as returned.** OSV.dev and registries are authoritative for our purpose. Responses are recorded so a verifier sees exactly what was used.
+- **Whoever holds `SETUP_TOKEN` before GitHub is connected controls which GitHub App the deployment trusts.** Keep it in the platform's secret store and remove it once setup is done.
 - **No external penetration test yet.**
