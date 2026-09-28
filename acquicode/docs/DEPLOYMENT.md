@@ -9,7 +9,7 @@ AcquiCode ships as **one container image** that runs three processes, plus Postg
 | migrate | `node dist-node/scripts/migrate.mjs` | once per release, before web and worker | the **schema owner** connection |
 | all-in-one | `node dist-node/scripts/start.mjs` | one container | everything above: migrates, then runs web and worker together, and exits if either stops |
 
-The all-in-one entry point is for platforms that run one process per service (Railway, Render, Fly). Section 2 is a complete example.
+The all-in-one entry point is for platforms that run one process per service. Section 2 is a complete recipe.
 
 After any deployment, open `{APP_URL}/setup`: it connects GitHub in one click (section 6) and shows a checklist of what is still unconfigured.
 
@@ -36,39 +36,39 @@ What the compose file does (`docker-compose.yml`):
 
 Verified: the image builds from the slim base in CI, the stack starts, migrations apply as the non-superuser owner, and the smoke checks pass. An uploaded archive has been analysed end to end by the containerised worker into a platform-attested dossier.
 
-## 2. One service on Railway
+## 2. One service on a container platform
 
-This is how the reference deployment runs: one service built from this repository, Railway PostgreSQL, and a Railway bucket (S3-compatible) for encrypted blobs. No volume is needed, so the image keeps running as its unprivileged user.
+Any platform that builds a Dockerfile from a repository and offers managed PostgreSQL works: one service built from this repository, the provider's PostgreSQL, and S3-compatible object storage for encrypted blobs. No volume is needed, so the image keeps running as its unprivileged user.
 
-1. Create a project with the **PostgreSQL** template and a **bucket**.
-2. Add a service from the GitHub repository with:
-   - root directory `/acquicode` (the Dockerfile is found there);
+1. Create a PostgreSQL database (16 or newer) and an S3-compatible bucket.
+2. Add a service from the repository with:
+   - root directory `acquicode` (the Dockerfile is there);
    - start command `node dist-node/scripts/start.mjs`;
-   - healthcheck path `/api/health` (timeout 180 s: the first start applies migrations);
-   - restart policy "on failure".
-3. Generate a public domain, then set the service variables. `${{...}}` are Railway references; `acquicode-blobs` is the bucket's name.
+   - healthcheck path `/api/health` (allow about three minutes: the first start applies migrations);
+   - restart on failure.
+3. Give it a public https domain, then set the service variables:
 
    | Variable | Value |
    |---|---|
-   | `APP_URL` | `https://${{RAILWAY_PUBLIC_DOMAIN}}` |
-   | `DATABASE_MIGRATION_URL` | `${{Postgres.DATABASE_URL}}` (the owner account Railway provides) |
+   | `APP_URL` | `https://<the service's public domain>` |
+   | `DATABASE_MIGRATION_URL` | the owner connection string the provider gives you |
    | `APP_DB_PASSWORD` | a random password; the first start creates `acquicode_app` with it |
-   | `DATABASE_URL` | `postgresql://acquicode_app:<that password>@${{Postgres.PGHOST}}:${{Postgres.PGPORT}}/${{Postgres.PGDATABASE}}` |
+   | `DATABASE_URL` | the same host, port and database as the owner URL, with user `acquicode_app` and that password |
    | `DATA_ENCRYPTION_KEYS` | `k<date>:<base64 of 32 random bytes>` (`openssl rand -base64 32`) |
    | `PLATFORM_SIGNING_KEY` | `openssl genpkey -algorithm ed25519`, newlines written as `\n` |
    | `SETUP_TOKEN` | a random string of 24+ characters, for `/setup` |
    | `STORAGE_DRIVER` | `s3` |
-   | `S3_BUCKET`, `S3_ENDPOINT`, `S3_REGION` | `${{acquicode-blobs.BUCKET}}`, `${{acquicode-blobs.ENDPOINT}}`, `${{acquicode-blobs.REGION}}` |
-   | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | `${{acquicode-blobs.ACCESS_KEY_ID}}`, `${{acquicode-blobs.SECRET_ACCESS_KEY}}` |
-   | `S3_SERVER_SIDE_ENCRYPTION` | `off` (Railway buckets do not support the SSE header; blobs are encrypted by the application either way) |
-   | `TRUST_PROXY` | `1` (Railway's edge proxy) |
+   | `S3_BUCKET`, `S3_ENDPOINT`, `S3_REGION` | the bucket's name, endpoint and region |
+   | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | the bucket's credentials |
+   | `S3_SERVER_SIDE_ENCRYPTION` | `off` if the store rejects the SSE header (many S3-compatible stores do); blobs are encrypted by the application either way |
+   | `TRUST_PROXY` | `1` behind the platform's edge proxy |
    | `WORK_DIR` | `/tmp/acquicode-work` |
-   | `WORKER_CONCURRENCY` | `1` on small instances (1 GB of memory on the trial) |
-   | `HOSTING_PROVIDER` | `Railway` (listed on the subprocessors page) |
+   | `WORKER_CONCURRENCY` | `1` on instances with about 1 GB of memory |
+   | `HOSTING_PROVIDER` | the provider's name (listed on the subprocessors page) |
    | `CONTACT_EMAIL`, `LEGAL_ENTITY` | your real contact address and company name, when you have them |
 4. Deploy, run `node deploy/smoke.mjs https://<domain>`, then open `https://<domain>/setup` and connect GitHub.
 
-Keep a copy of `DATA_ENCRYPTION_KEYS` outside Railway: without it, stored dossiers and credentials cannot be decrypted.
+Keep a copy of `DATA_ENCRYPTION_KEYS` outside the platform: without it, stored dossiers and credentials cannot be decrypted.
 
 ## 3. Building the image
 
@@ -81,7 +81,7 @@ docker build -t acquicode:<version> .
   ```sh
   cp /path/proxy-ca.pem deploy/ca/ && docker build --build-arg HTTPS_PROXY -t acquicode .
   ```
-  The certificate is trusted only for the install and build steps and is removed from the runtime image. The Dockerfile uses no BuildKit-only features, so hosted builders (Railway, Render) build it unchanged.
+  The certificate is trusted only for the install and build steps and is removed from the runtime image. The Dockerfile uses no BuildKit-only features, so hosted builders that reject BuildKit extensions build it unchanged.
 - **Runtime.** Runs as UID 10001, and includes a `HEALTHCHECK` on `/api/health`. Run it with an init process (`docker run --init`, compose `init: true`), although the worker also kills whole process groups on timeouts.
 
 ## 4. Configuration
@@ -103,7 +103,7 @@ All configuration is environment variables, validated at start-up (`apps/web/lib
 | `STORAGE_DRIVER` | no | `fs` (default) or `s3`. |
 | `STORAGE_DIR` | fs | Blob directory (image default `/data/blobs`). Must be shared by web and worker. |
 | `S3_BUCKET`, `S3_REGION`, `S3_ENDPOINT`, `S3_FORCE_PATH_STYLE` | s3 | S3 or a compatible store. Blobs are encrypted by the app before upload. |
-| `S3_SERVER_SIDE_ENCRYPTION` | no | `AES256` (default), `aws:kms` or `off`: server-side encryption requested in addition to the app's own. Use `off` for stores that reject the header (Railway buckets). `/api/ready` round-trips a test blob, so a store that refuses uploads shows up at deploy time. |
+| `S3_SERVER_SIDE_ENCRYPTION` | no | `AES256` (default), `aws:kms` or `off`: server-side encryption requested in addition to the app's own. Use `off` for stores that reject the header. `/api/ready` round-trips a test blob, so a store that refuses uploads shows up at deploy time. |
 | `WORK_DIR` | no | Worker scratch space for clones. Should be ephemeral. |
 | `MAX_UPLOAD_MB` | no | Default 200. |
 | `SCAN_TIMEOUT_SECONDS` | no | Default 1800. The analysis child process is killed after this. |
@@ -117,7 +117,7 @@ All configuration is environment variables, validated at start-up (`apps/web/lib
 | `SETUP_TOKEN` | recommended | 24+ characters. Unlocks `/setup`, where the operator creates the GitHub App from a manifest and sees the deployment checklist. Setup closes once an App is stored or the GitHub variables are set. |
 | `CONTACT_EMAIL`, `SECURITY_EMAIL` | recommended | Shown in the footer, the legal pages and `/.well-known/security.txt`. Never derived from the host name: unset means not shown (and security.txt returns 404). |
 | `LEGAL_ENTITY` | recommended | The company named in the Terms and Privacy pages. |
-| `HOSTING_PROVIDER` | recommended | Listed on the subprocessors page, e.g. `Railway` or `Amazon Web Services (eu-west-1)`. |
+| `HOSTING_PROVIDER` | recommended | Listed on the subprocessors page, e.g. `Amazon Web Services (eu-west-1)`. |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | s3 | Read by the AWS SDK for the S3 driver (or use an instance role). |
 | `ACQUICODE_DEV_LOGIN` | never in production | Development-only sign-in. Refused when `NODE_ENV=production`. |
 | `LOG_LEVEL` | no | pino level (default `info`). |

@@ -1,5 +1,5 @@
 # One image, four entry points: the web app (default), the worker, migrations, and
-# all of them in one container for single-service platforms (Railway, Render, Fly).
+# all of them in one container for single-service container platforms.
 #   docker run IMAGE                                     → web on :3000
 #   docker run IMAGE node dist-node/worker/index.mjs     → worker
 #   docker run IMAGE node dist-node/scripts/migrate.mjs  → migrations

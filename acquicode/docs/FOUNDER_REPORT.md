@@ -51,9 +51,9 @@ Sellers can't answer from memory, and the evidence that exists (commit metadata,
 - A hosted app: GitHub App, GitLab, ZIP; worker; signed dossiers; share links; continuous mode; buyer dossier requests (a single-use push token per target, an inbox of what arrived); signed Slack/webhook notifications; audit trail; billing.
 - A public website: landing page with a live sample dossier, pricing, `/verify`, the CLI served with a checksum at `/cli`, security, terms, privacy and a configuration-driven subprocessor list, `security.txt`, platform key history.
 - PostgreSQL with forced row-level security.
-- One container image, a compose stack, a one-container start for Railway-style platforms, and CI.
+- One container image, a compose stack, a one-container start for single-service platforms, and CI.
 - One-click operator setup: `/setup` creates the GitHub App from a manifest.
-- **Live:** <https://acquicode-production.up.railway.app> on Railway (PostgreSQL, a bucket for encrypted blobs). Deployed from this branch; migrations applied on first start; the sample dossier renders there with the same digest as a local build (OBSERVATION). Sign-in opens once the operator completes `/setup` with their GitHub account.
+- **Not publicly hosted yet.** A trial deployment during development confirmed that the image builds on a hosted builder, migrations apply on first start, blob storage round-trips, and the sample dossier has the same digest as a local build (OBSERVATION). Choosing the production host is an open founder decision.
 - 154 tests, including an end-to-end suite against the production build and replays of every attack found.
 
 **Moat (to be earned, not claimed).**

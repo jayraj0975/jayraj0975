@@ -1,7 +1,6 @@
 /**
- * Single-container mode for platforms that run one process per service
- * (Railway, Render, Fly): apply migrations, then run the web server and the
- * worker side by side.
+ * Single-container mode for platforms that run one process per service:
+ * apply migrations, then run the web server and the worker side by side.
  *
  *   node dist-node/scripts/start.mjs
  *

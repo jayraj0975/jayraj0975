@@ -63,7 +63,7 @@ Then delete `orgs/<org>/` from blob storage. Record the request and its completi
    ```sh
    docker compose run --rm worker node dist-node/worker/reencrypt.mjs
    # {"currentKey":"k2026b","credentials":{"checked":3,"reencrypted":3},"blobs":{"checked":41,"reencrypted":41,"missing":0}}
-   # On Railway (one service): run it from a one-off shell in the service, e.g. `railway ssh`, then the same command.
+   # On a single-service platform, run the same command from a one-off shell in the service.
    ```
    It is idempotent: run it again and it reports 0 re-encrypted.
 4. Remove the old key from `DATA_ENCRYPTION_KEYS` and deploy.

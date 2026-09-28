@@ -12,7 +12,7 @@ export async function migrate(url: string, appRole: string, dir = join(process.c
   await client.connect();
   const applied: string[] = [];
   try {
-    // Platforms that hand out one owner account (Railway, Render, Fly): create the unprivileged
+    // Platforms that hand out a single owner account: create the unprivileged
     // application role here when a password for it is provided and it does not exist yet.
     if (opts.appPassword) {
       const exists = await client.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [appRole]);

@@ -24,8 +24,9 @@ Working software, not yet validated with paying customers:
 - a CLI;
 - a hosted web app with a worker;
 - PostgreSQL with row-level tenant isolation;
-- a production container image, a compose stack and CI;
-- a live reference deployment on Railway: <https://acquicode-production.up.railway.app> (public pages, the sample dossier, verification and the CLI download work now; sign-in opens once the operator connects GitHub at `/setup`).
+- a production container image, a compose stack, a one-container start for single-service platforms, and CI.
+
+It is not publicly hosted yet: everything is ready to self-host (below), and where to run it is still an open decision.
 
 154 automated tests, including an end-to-end suite against the production build and a database-isolation suite that runs as a non-superuser owner.
 
@@ -33,15 +34,15 @@ What remains uncertain is mostly commercial; see `docs/FOUNDER_REPORT.md` and `d
 
 ## Try it
 
-**Locally, on your own repository** (nothing leaves your machine). Every deployment serves the CLI as one file with its checksum (instructions at `/cli`):
+**Locally, on your own repository** (nothing leaves your machine). Build the CLI from source:
 
 ```sh
-curl -fsSL https://acquicode-production.up.railway.app/cli/acquicode.mjs -o acquicode.mjs
-node acquicode.mjs scan /path/to/repo --out ./acquicode-out
+cd acquicode && corepack enable && pnpm install && pnpm run build
+node packages/cli/dist/main.js scan /path/to/repo --out ./acquicode-out
 open ./acquicode-out/dossier.html
 ```
 
-Or build it from source: `cd acquicode && corepack enable && pnpm install && pnpm run build`, then `node packages/cli/dist/main.js …`.
+Once a deployment is running, it also serves the CLI as a single file with its checksum at `/cli/acquicode.mjs` (instructions at `/cli`).
 
 Add `--osv` to check public dependencies against OSV.dev. Add `--sign-key acquicode-signing.key.pem` (from `acquicode keygen`) to sign the dossier. Anyone can then check it with `acquicode verify dossier.json --envelope dossier.dsse.json --key acquicode-signing.pub.pem --reproduce /path/to/repo`.
 
@@ -53,7 +54,7 @@ docker compose up -d --build
 node deploy/smoke.mjs http://127.0.0.1:3000
 ```
 
-The sample dossier for a synthetic company, "Meridian Systems", is at `/sample`. On a single-service platform, run `node dist-node/scripts/start.mjs` (migrations, web and worker in one container); `docs/DEPLOYMENT.md` §2 is the complete Railway recipe. Then open `/setup` to connect GitHub in one click (with `SETUP_TOKEN` set). Stripe and S3 are optional.
+The sample dossier for a synthetic company, "Meridian Systems", is at `/sample`. On a single-service platform, run `node dist-node/scripts/start.mjs` (migrations, web and worker in one container); `docs/DEPLOYMENT.md` §2 is the complete recipe. Then open `/setup` to connect GitHub in one click (with `SETUP_TOKEN` set). Stripe and S3 are optional.
 
 **Tests:**
 

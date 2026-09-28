@@ -9,7 +9,7 @@ Ordered by what most reduces the risk that this is the wrong company, not by wha
 | 20 seller conversations through M&A advisors and startup counsel; pre-sell Readiness at $1,500 | A1 | 5 paid, or a clear reason why not |
 | 10 acquirer conversations (aggregators, search funds, micro-PE): deals per year, spend per deal, whether a self-attested, reproducible dossier changes their process | A2 | 3 willing to send the token-and-push request to a live target |
 | Publish `@acquicode/cli` to npm, with a GitHub Action wrapper | Distribution | `npx @acquicode/cli scan` works. Until then every deployment serves the CLI as one file with a checksum (`/cli`), and the landing page claims nothing more. |
-| Complete `/setup` on the live deployment and run a first hosted scan of a real repository | Launch | Sign-in works at the live URL, and one dossier has been produced there end to end |
+| Choose a host, deploy (DEPLOYMENT.md §2), complete `/setup` and run a first hosted scan of a real repository | Launch | Sign-in works at the public URL, and one dossier has been produced there end to end |
 | One law-firm design partner using share links in a live deal | Channel | Their questions come from the dossier, not a blank checklist |
 
 ## Next: close the gaps the kill tests exposed (weeks 6–16)
