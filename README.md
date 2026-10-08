@@ -2,10 +2,7 @@
 
 Third-year IT student at PES Modern College of Engineering, Pune. I build data products that run outside a notebook: tested models, usable interfaces, documented assumptions, and reproducible results.
 
-I am currently building two products under **InfinityOre**:
 
-- **PactMeter** — commercial decision control for pricing, customer commitments, invoice history, and evidence.
-- **AcquiCode** — evidence-graded technical diligence for software acquisitions.
 
 ## Selected work
 
